@@ -12225,7 +12225,7 @@ namespace giac {
       }
       if (l>digits+delta)
 	digits=l-delta;
-#if !defined __MINGW_H && defined HAVE_LIBMPFR // #ifndef GIAC_HAS_STO_38
+#if defined HAVE_LIBMPFR // #ifndef GIAC_HAS_STO_38
       if (digits>14){
 #if 1 // def HAVE_LIBMPFR
 	int nbits=digits2bits(digits);
