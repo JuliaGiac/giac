@@ -13,6 +13,14 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    # The workflows live on `dev`, not on the default branch: this
+    # repository's own description says "use dev branch to see latest
+    # developments". Dependabot reads its config from the default branch but
+    # fetches the manifests it updates from `target-branch`, and without this
+    # it found no workflow at all and aborted the job:
+    #   ERROR Error during file fetching; aborting: /action.yml or
+    #   /.github/workflows/<...>
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
