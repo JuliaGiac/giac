@@ -51,12 +51,19 @@
 !tests/**
 !.github/
 !.github/**
+!site/
+!site/**
 
 # -----------------------------------------------------------------------------
 # Meson build outputs (always ignore)
 # -----------------------------------------------------------------------------
 builddir/
 cross/local/
+
+# Hugo build outputs (web site in site/)
+site/public/
+site/resources/
+site/.hugo_build.lock
 
 # -----------------------------------------------------------------------------
 # Classic C++ gitignore

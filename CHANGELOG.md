@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Web site at <https://juliagiac.github.io/giac/> (Hugo, in `site/`),
+  presenting the upstream Giac/Xcas project by Bernard Parisse and Renée De
+  Graeve and what this repository adds. Published from `dev` by
+  `.github/workflows/pages.yml`; `just site-serve` and `just site-build`
+  preview and build it locally.
+
 ### Fixed
 - A `limit` or `series` that fails with an error no longer leaves bit 3 of
   `series_flags` set for the rest of the session

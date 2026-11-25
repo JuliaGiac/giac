@@ -95,3 +95,12 @@ aide *ARGS:
 # Show build configuration summary
 info:
     meson introspect {{builddir}} --buildoptions
+
+# Serve the web site (site/) locally with live reload. GODEBUG is unset
+# because Go >= 1.24 binaries abort on the removed `tlskyber` setting.
+site-serve:
+    env -u GODEBUG hugo server --source site
+
+# Build the web site into site/public/, failing on any warning
+site-build:
+    env -u GODEBUG hugo --source site --gc --minify --panicOnWarning
