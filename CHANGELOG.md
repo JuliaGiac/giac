@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Graeve and what this repository adds. Published from `dev` by
   `.github/workflows/pages.yml`; `just site-serve` and `just site-build`
   preview and build it locally.
+  The site carries the JuliaGiac mark and favicon, and its title links to
+  the site's own home page.
 
 ### Fixed
 - A `limit` or `series` that fails with an error no longer leaves bit 3 of
