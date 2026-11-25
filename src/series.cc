@@ -3201,10 +3201,20 @@ namespace giac {
     // Insert here code for cleaning limit remember
     int save_series_flags=series_flags(contextptr);
     series_flags(save_series_flags | 8,contextptr);
-    // sincosinf.clear();
-    gen e_exact=exact(e,contextptr);
-    gen lim_point_exact=exact(lim_point,contextptr);
-    gen l=in_limit(e_exact,x,lim_point_exact,direction,contextptr);
+    gen e_exact,lim_point_exact,l;
+#ifndef NO_STDEXCEPT
+    try {
+#endif
+      // sincosinf.clear();
+      e_exact=exact(e,contextptr);
+      lim_point_exact=exact(lim_point,contextptr);
+      l=in_limit(e_exact,x,lim_point_exact,direction,contextptr);
+#ifndef NO_STDEXCEPT
+    } catch (std::runtime_error & e) {
+      series_flags(save_series_flags,contextptr);
+      throw std::runtime_error(e.what());
+    }
+#endif
     if (e.is_approx() || lim_point.is_approx())
       l=evalf(l,1,contextptr);
     series_flags(save_series_flags,contextptr);
@@ -3423,6 +3433,9 @@ namespace giac {
     gen e(e_);
     int save_series_flags=series_flags(contextptr);
     series_flags(save_series_flags | 8,contextptr);
+#ifndef NO_STDEXCEPT
+    try {
+#endif
     if (has_op(e,*at_surd) || has_op(e,*at_NTHROOT)){
       vecteur ls(lop(e,at_NTHROOT)),lsa,lsb;
       for (int i=0;i<ls.size();++i){
@@ -3456,6 +3469,12 @@ namespace giac {
     gen res=in_series(_pow2exp(tan2sincos(e,contextptr),contextptr),x,lim_point,ordre,direction,contextptr);
     series_flags(save_series_flags,contextptr);
     return res;
+#ifndef NO_STDEXCEPT
+    } catch (std::runtime_error & err) {
+      series_flags(save_series_flags,contextptr);
+      throw std::runtime_error(err.what());
+    }
+#endif
   }
 
   gen series(const gen & e,const gen & vars,const gen & lim_point,int ordre,int direction,GIAC_CONTEXT){
