@@ -1,0 +1,7 @@
+# baseURL is overridden in CI by the URL GitHub Pages reports.
+baseURL = "https://juliagiac.github.io/giac/"
+title = "JuliaGiac / giac"
+disableKinds = ["taxonomy", "term", "RSS", "sitemap"]
+
+[params]
+description = "The Giac computer algebra system, with a Meson build."
