@@ -18,3 +18,14 @@ test_caseval = executable('test_caseval',
 )
 
 test('caseval', test_caseval, suite: 'unit', timeout: 60)
+
+# Regression test for JuliaGiac/giac#4 (series_flags left set by a failed
+# limit or series)
+test_series_flags = executable('test_series_flags',
+  'test_series_flags.cc',
+  include_directories: [giac_inc, config_inc],
+  dependencies: test_deps,
+  cpp_args: giac_common_args,
+)
+
+test('series_flags', test_series_flags, suite: 'unit', timeout: 60)
