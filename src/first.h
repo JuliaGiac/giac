@@ -433,7 +433,9 @@ typedef int ref_count_t;
 #endif
 
 #if __BYTE_ORDER__ ==__ORDER_LITTLE_ENDIAN__ && SIZEOF_VOID_P==8 //(defined(__LP64__) || defined(_WIN64) || (defined(x86_64) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__))
-#if !defined(BUILDING_NODE_EXTENSION) || !defined(_WIN64)
+// DOUBLEVAL stores a full 64-bit double in gen, which the 8-byte SMARTPTR64
+// layout cannot hold (see gen.h): never combine the two.
+#if (!defined(BUILDING_NODE_EXTENSION) || !defined(_WIN64)) && !defined(DOUBLEVAL)
 #define SMARTPTR64
 #endif
 #else // x86_64

@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this build).
 
 ### Added
+- `doubleval` Meson option (experimental, off by default): defines `DOUBLEVAL`
+  in `config.h` so `gen` stores full 53-bit doubles instead of the 48 mantissa
+  bits it keeps on 64-bit little-endian CPUs, where the low bits of an inline
+  double hold the type tag. `first.h` no longer defines `SMARTPTR64` when
+  `DOUBLEVAL` is set: the two layouts cannot be combined (see `src/gen.h`).
+  Not usable on x86_64 yet: `icas` crashes in `check/testintegrate`, and
+  `check/testcas` prints some complex results in polar form. `BUILDING.md` documents the precision
+  of doubles, the option and these failures, with the commands to reproduce
+  them.
 - Web site at <https://juliagiac.github.io/giac/> (Hugo, in `site/`),
   presenting the upstream Giac/Xcas project by Bernard Parisse and Renée De
   Graeve and what this repository adds. Published from `dev` by
