@@ -19,7 +19,6 @@ Added 0 synonyms
 // Success
 // End defining T
 ============== restarted ===============
-// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -28,6 +27,7 @@ Added 0 synonyms
 // Time 0
 // Time 0
 // Time 0
+// Time 0
 0
 0
 0
@@ -44,7 +44,7 @@ Added 0 synonyms
 0
 0
 0
-// Time 0.01
+// Time 0.02
 // Time 0
 // Time 0
 // Time 0
@@ -68,7 +68,7 @@ Added 0 synonyms
 0
 0
 0
-// Time 0.07
+// Time 0.09
 // Time 0
 // Time 0
 // Time 0
@@ -78,11 +78,6 @@ Added 0 synonyms
 // Time 0
 // Time 0
 // Time 0
-// Time 0.02
-// Time 0
-// Time 0
-// Time 0
-// Time 0
 // Time 0
 // Time 0
 // Time 0
@@ -96,41 +91,46 @@ Added 0 synonyms
 // Time 0
 // Time 0.01
 // Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
 // Time 0.03
   *** _ZM_mul_worker: Warning: increasing stack size to 4096000.
-// Time 0.15
+// Time 0.19
 // Time 0.13
-// Time 0.2
+// Time 0.19
 // Time 0
 // Time 0
 // Time 0
-// Time 0.02
+// Time 0.01
+// Time 0.18
+// Time 0.12
 // Time 0.14
-// Time 0.13
-// Time 0.13
 // Time 0
 // Time 0
 // Time 0
-// Time 0
+// Time 0.01
 // Time 0
   ***   Warning: increasing stack size to 4096000.
-// Time 0.22
-// Time 0.25
-// Time 0.19
+// Time 0.26
+// Time 0.27
+// Time 0.18
 // Time 0.17
 // Time 0
 // Time 0
 // Time 0
 // Time 0
-// Time 0.01
-// Time 0
-// Time 0.21
 // Time 0
 // Time 0
-// Time 0.01
+// Time 0.27
+// Time 0
+// Time 0.02
+// Time 0
 
-Evaluation time: 0.71
-// Time 0.71
+Evaluation time: 0.99
+// Time 0.99
 // Time 0
 // Time 0
 // Time 0
@@ -146,6 +146,7 @@ Evaluation time: 0.71
 // Time 0
 // Time 0
 // Time 0
+// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -154,6 +155,5 @@ Evaluation time: 0.71
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Total time 2.96
+// Total time 3.43
 PASS chk_fhan4 (exit status: 0)

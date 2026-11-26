@@ -25,7 +25,7 @@ Added 0 synonyms
 (Comment) scanning line 95
 (Comment) scanning line 96
 ============== restarted ===============
-// Time 0.01
+// Time 0
 // Time 0
 // Time 0
 // Time 0
@@ -45,28 +45,28 @@ OK c'est un  carre
 calcul du det 8x8 antisymetrique formel
 // Time 0
 
-Evaluation time: 3.62
-// Time 3.62
-// Time 0.05
+Evaluation time: 3.27
+// Time 3.27
+// Time 0.07
 OK c'est bien nul
 
-Evaluation time: 1.94
-// Time 1.94
-// GCD eval dimension 27 6257815 Vector [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2] 5250 Vector [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1]1380 
-Find_good_eval 6259629 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-Fb= 6261376 0
-Gb= 6261833 0
-Find_good_eval 6261843 [-28,-28,23,-26,-46,-87,88,6,-16,14,69,71,-78,-74,81,-27,-87,81,-88,51,-8,68,48,-46,-59,-69]
-Fb= 6358305 %%%{13461,[2]%%%}+%%%{2905,[1]%%%}+%%%{12350,[0]%%%}
-Gb= 6387233 %%%{13461,[1]%%%}+%%%{-13554,[0]%%%}
-FOUND good eval6387244 [-28,-28,23,-26,-46,-87,88,6,-16,14,69,71,-78,-74,81,-27,-87,81,-88,51,-8,68,48,-46,-59,-69]
+Evaluation time: 1.85
+// Time 1.85
+// GCD eval dimension 27 5866108 Vector [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2] 5250 Vector [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1]1380 
+Find_good_eval 5867786 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+Fb= 5869734 0
+Gb= 5870276 0
+Find_good_eval 5870291 [-28,-28,23,-26,-46,-87,88,6,-16,14,69,71,-78,-74,81,-27,-87,81,-88,51,-8,68,48,-46,-59,-69]
+Fb= 6042180 %%%{13461,[2]%%%}+%%%{2905,[1]%%%}+%%%{12350,[0]%%%}
+Gb= 6094444 %%%{13461,[1]%%%}+%%%{-13554,[0]%%%}
+FOUND good eval6094476 [-28,-28,23,-26,-46,-87,88,6,-16,14,69,71,-78,-74,81,-27,-87,81,-88,51,-8,68,48,-46,-59,-69]
 // evaled GCD deg 1
-Trying q/lgcd(q) as gcd 27 6387269
-lgcd(q) ok 27 6410214
-Success q/lgcd(q) as gcd 27 6568139
+Trying q/lgcd(q) as gcd 27 6094531
+lgcd(q) ok 27 6116784
+Success q/lgcd(q) as gcd 27 6299733
 
-Evaluation time: 0.88
-// Time 0.88
+Evaluation time: 1.04
+// Time 1.04
 OK pour le pfaffien 8x8
 // Time 0
 // Time 0
@@ -80,11 +80,11 @@ OK pour le pfaffien 8x8
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
 // Time 0.01
+// Time 0
+// Time 0
+// Time 0
+// Time 0
 // Time 0
 // Time 0
 // Time 0
@@ -110,8 +110,6 @@ La jordanisation est bonne
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Time 0
 // Time 0.01
 // Time 0
 // Time 0
@@ -126,5 +124,7 @@ La jordanisation est bonne
 // Time 0
 // Time 0
 // Time 0
-// Total time 6.52
+// Time 0
+// Time 0
+// Total time 6.25
 PASS chk_fhan1 (exit status: 0)

@@ -1,4 +1,22 @@
+#include "k_csdk.h"
+#include <string.h>
 // implementation of the minimal C SDK for KhiCAS
+extern const unsigned char VGA_Ascii_5x8[];
+extern const unsigned char VGA_Ascii_6x12[];
+extern const unsigned char orp_Ascii_6x12[];
+extern const unsigned char VGA_Ascii_8x16[];
+extern const unsigned char VGA_Ascii_7x14[];
+
+int sdk_ctrl_c=0;
+
+double loopsleep(int ms){
+  double n=ms*(3000),j=0.0;
+  for (double i=0;i<n;++i){
+    j+=i;
+  }
+  return j;
+}
+
 int (*khicas_shutdown)()=0;
 
 short shutdown_state=0;
@@ -11,7 +29,3103 @@ int exam_bg(){
   return exam_mode?(exam_duration>0?exam_bg1:exam_bg2):0x50719;
 }
 
-void SetQuitHandler( void (*f)(void)){}
+void SetQuitHandler( void (*f)(void)){ (void) f;}
+/*
+  ******************
+  *      SDL       *
+  ******************
+*/
+#ifdef SDL
+#include <time.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <signal.h>
+
+void crash_handler(int sig) {
+  printf("signal recu: %d\n", sig);
+  FILE *f = fopen("/tmp/lastsig.log", "a");
+  if (f) { fprintf(f, "signal recu: %d\n", sig); fclose(f); }
+  // Quitte la SDL proprement pour rendre le terminal et le framebuffer
+  SDL_Quit();
+  
+  // Optionnel : démasquer le curseur / restaurer kbd_mode via system
+  system("kbd_mode -a 2>/dev/null; reset");
+  
+  // Réémission du signal par défaut pour laisser le core dump/statut de crash se faire
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
+void setup_crash_signals(void) {
+  signal(SIGSEGV, crash_handler);
+  signal(SIGABRT, crash_handler);
+  signal(SIGTERM, crash_handler);
+  signal(SIGINT,  crash_handler);
+  signal(SIGHUP,  crash_handler);
+}
+
+int prime_statusarea=18;
+int sdl_pushed=false;
+SDL_Surface* screen=0;
+SDL_Surface* buffer=0;
+unsigned * fb_screen=0;
+int sdl_scale = 1;
+SDL_Cursor *sdl_cursor=0;
+
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+int save_screen_png(SDL_Surface *buffer, const char *filename) {
+  if (!buffer) return -1;
+  
+  /* 1. Surface temporaire RGB24 de 320x240 */
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+  SDL_Surface *rgb = SDL_CreateRGBSurface(SDL_SWSURFACE, LCD_WIDTH_PX, LCD_HEIGHT_PX, 24, 0xff0000, 0x00ff00, 0x0000ff, 0);
+#else
+  SDL_Surface *rgb = SDL_CreateRGBSurface(SDL_SWSURFACE, LCD_WIDTH_PX, LCD_HEIGHT_PX, 24, 0x0000ff, 0x00ff00, 0xff0000, 0);
+#endif
+  if (!rgb) return -1;
+  
+  /* 2. Copie des 240 premières lignes de l'écran */
+  SDL_Rect src_rect = { 0, 0, LCD_WIDTH_PX, LCD_HEIGHT_PX };
+  SDL_BlitSurface(buffer, &src_rect, rgb, NULL);
+  
+  /* 3. Encodage PN<G */
+  // if (SDL_MUSTLOCK(rgb)) SDL_LockSurface(rgb);
+  int ok = stbi_write_png(filename, LCD_WIDTH_PX, LCD_HEIGHT_PX, 3, rgb->pixels, rgb->pitch);
+  // if (SDL_MUSTLOCK(rgb)) SDL_UnlockSurface(rgb);
+  
+  SDL_FreeSurface(rgb);
+  return ok ? 0 : -1;
+}
+
+
+void set_pixel_nock(unsigned x,unsigned y,int c){
+  //  printf("MUSTLOCK=%d\n", SDL_MUSTLOCK(buffer));
+  fb_screen[x + y * VIR_LCD_PIX_W] = c;
+}
+
+// same without checking boundaries
+void putchar_nock(int x0, int y0, char ch, int fg, int bg, int fontSize) {
+  int font_w;
+  int font_h;
+  const unsigned char *pCh;
+  int x=0, y=0;
+  if ((ch < ' ') || (ch > '~' + 1)) {
+    return;
+  } 
+  switch (fontSize) {
+  case 8:
+    font_w = 5;
+    font_h = 8;
+    pCh = VGA_Ascii_5x8 + (ch - ' ') * font_h;
+    break;
+  case 12:
+    font_w = 6;
+    font_h = 12;
+    pCh = orp_Ascii_6x12 + (ch - ' ') * font_h;
+    break;
+  case 16:
+    font_w = 8;
+    font_h = 16;
+    pCh = VGA_Ascii_8x16 + (ch - ' ') * font_h;
+    break;
+  case 14:
+    font_w = 7;
+    font_h = 14;
+    pCh = VGA_Ascii_7x14 + (ch - ' ') * font_h;
+    break;
+  default:
+    return;
+  }
+  while (y<font_h) {
+    while (x<font_w) {
+      set_pixel_nock(x0+x,y0+y, ((*pCh << x) & 0x80U)?fg:bg);
+      x++;
+    }
+    x = 0;
+    y++;
+    pCh++;
+  }
+}
+
+int c_rgb565to888(int fg);
+
+int offset_draw_string(int offset_x,int offset_y,int x0, int y0, const char *s, int fg, int bg, int fontSize) {
+  fg = c_rgb565to888(fg);
+  bg = c_rgb565to888(bg);
+  x0 += offset_x;
+  y0 += offset_y;
+  int font_w=8;
+  int font_h=16;
+  //int len = strlen(s);
+  int x = 0, y = 0;
+  if (fontSize <= 16) {
+    switch (fontSize) {
+    case 8:
+      font_w = 5;
+      break;
+    case 12:
+      font_w = 6;
+      break;
+    case 14:
+      font_w = 7;
+      break;
+    case 16:
+      font_w = 8;
+      break;
+    default:
+      font_w = 8;
+      break;
+    }
+    font_h = fontSize;
+    fb_screen = buffer->pixels; 
+    while (*s) {
+      putchar_nock((x0) + x, (y0) + y, *s, fg, bg, fontSize);
+      s++;
+      x += font_w;
+    }
+    return x0+x;
+  }    
+}
+
+// Virtual keyboard
+#if !defined __APPLE__ // def __EMSCRIPTEN__
+int compact_keyboard=0;
+#else
+int compact_keyboard=1;
+#endif
+int png_y_offset=135;
+
+/* Dimensions de la partie haute */
+#define W_STD 44
+#define H_STD 28
+#define H_SM  20
+
+static const vkey g2_keypad_top[] = {
+    /* --- Gauche Col 1 (2 touches) --- */
+    /* x,   y,  w,  h, keycode,     main,   shift,   alpha, bg */
+    {   6,   1, W_STD, H_SM, SDLK_LALT,     "Apps",  "Info",  "",    SDK_BLACK },
+    {   6,  33, W_STD, H_SM, SDLK_LMETA,    "Home",  "Mode",  "",    SDK_BLACK },
+
+    /* --- Gauche Col 2 (3 touches) --- */
+    {  54,   1, W_STD, H_SM,  SDLK_F1,     "Symb",  "Setup", "",    SDK_BLACK },
+    {  54,  22, W_STD, H_SM,  SDLK_F2,     "Plot",  "Setup", "",    SDK_BLACK },
+    {  54,  43, W_STD, H_SM,  SDLK_F3,     "Num",   "Setup", "",    SDK_BLACK },
+
+    /* --- Centre : Pavé Directionnel (D-Pad) --- */
+    { 138,   1,  W_STD,   H_SM,    SDLK_UP,     "^",     "",      "",    SDK_BLACK }, // y: 1 à 20
+    { 112,  22,  W_STD,   H_SM,    SDLK_LEFT,   "<",     "",      "",    SDK_BLACK }, // y: 22 à 41
+    { 164,  22,  W_STD,   H_SM,    SDLK_RIGHT,  ">",     "",      "",    SDK_BLACK }, // y: 22 à 41
+    { 138,  43,  W_STD,   H_SM,    SDLK_DOWN,   "v",     "",      "",    SDK_BLACK }, // y: 43 à 62
+    
+    /* --- Droite Col 3 (3 touches) --- */
+    { 222,   1, W_STD, H_SM,  9,            "Help",  "User",  "",    SDK_BLACK },
+    { 222,  22, W_STD, H_SM,  SDLK_F5,     "View",  "Copy",  "",    SDK_BLACK },
+    { 222,  43, W_STD, H_SM,  SDLK_MENU,   "Menu",  "Paste", "",    SDK_BLACK },
+
+    /* --- Droite Col 4 (2 touches) --- */
+    { 270,   1, W_STD, H_SM, SDLK_ESCAPE, "Esc",   "Clear", "",    SDK_BLACK },
+    { 270,  33, W_STD, H_SM, SDLK_LCTRL,  "CAS",   "Settings","",  SDK_BLACK }
+};
+
+#define W1 46   /* Touche standard 6-colonnes */
+#define W2 48   /* Touche pavé numérique élargi */
+#define W_ENT 98/* Touche Enter double largeur */
+#define H_BOT 20/* Hauteur des touches du bas */
+
+static const vkey g2_keypad_bottom[] = {
+    /* ================= RANGÉE 1 (y=64) ================= */
+    /* x,   y,  w,  h, keycode,        main,      shift,    alpha, bg */
+    {   4, 64, W1, H_BOT, SDLK_a,        "Var",     "char",   "A",   SDK_WHITE },
+    {  56, 64, W1, H_BOT, SDLK_b,        "Tool",    "mem",    "B",   SDK_WHITE },
+    { 108, 64, W1, H_BOT, SDLK_c,        "Eqw",     "unit",   "C",   SDK_WHITE },
+    { 160, 64, W1, H_BOT, SDLK_d,        "x,t",     "def",    "D",   SDK_WHITE },
+    { 212, 64, W1, H_BOT, SDLK_e,        "ab/c",    "'\"",    "E",   SDK_WHITE },
+    { 264, 64, W1, H_BOT, SDLK_BACKSPACE,"<--",     "Del",    "",    SDK_WHITE },
+
+    /* ================= RANGÉE 2 (y=85) ================= */
+    {   4, 85, W1, H_BOT, SDLK_f,        "x^y",     "^(1/",   "F",   SDK_WHITE },
+    {  56, 85, W1, H_BOT, SDLK_g,        "sin",     "asin",   "G",   SDK_WHITE },
+    { 108, 85, W1, H_BOT, SDLK_h,        "cos",     "acos",   "H",   SDK_WHITE },
+    { 160, 85, W1, H_BOT, SDLK_i,        "tan",     "atan",   "I",   SDK_WHITE },
+    { 212, 85, W1, H_BOT, SDLK_j,        "ln",      "exp",    "J",   SDK_WHITE },
+    { 264, 85, W1, H_BOT, SDLK_k,        "log",     "10^x",   "K",   SDK_WHITE },
+
+    /* ================= RANGÉE 3 (y=106) ================= */
+    {   4,106, W1, H_BOT, SDLK_l,        "x^2",     "sqrt",   "L",   SDK_WHITE },
+    {  56,106, W1, H_BOT, SDLK_m,        "+-",      "|x|",    "M",   SDK_WHITE },
+    { 108,106, W1, H_BOT, SDLK_n,        "()",      "''",     "N",   SDK_WHITE },
+    { 160,106, W1, H_BOT, SDLK_o,        ",",       "Eval",   "O",   SDK_WHITE },
+    { 212,106, W_ENT, H_BOT,SDLK_RETURN, "Enter",   "approx", "",    SDK_WHITE },
+
+    /* ================= RANGÉE 4 (y=127) ================= */
+    {   4,127, W1, H_BOT, SDLK_p,        "EEX",     "Sto",    "P",   SDK_WHITE },
+    {  56,127, W2, H_BOT, SDLK_q,        "7",       "List",   "Q",   SDK_WHITE },
+    { 108,127, W2, H_BOT, SDLK_r,        "8",       "{}",     "R",   SDK_WHITE },
+    { 160,127, W2, H_BOT, SDLK_s,        "9",       "!",      "S",   SDK_WHITE },
+    { 212,127, W1, H_BOT, SDLK_t,        "/",       "inv",    "T",   SDK_WHITE },
+
+    /* ================= RANGÉE 5 (y=148) ================= */
+    {   4,148, W1, H_BOT, SDLK_LALT,     "ALPHA",   "",       "",    SDK_WHITE },
+    {  56,148, W2, H_BOT, SDLK_u,        "4",       "Mtrx",   "U",   SDK_WHITE },
+    { 108,148, W2, H_BOT, SDLK_v,        "5",       "[]",     "V",   SDK_WHITE },
+    { 160,148, W2, H_BOT, SDLK_w,        "6",       "<>",     "W",   SDK_WHITE },
+    { 212,148, W1, H_BOT, SDLK_x,        "*",       "angl",   "X",   SDK_WHITE },
+
+    /* ================= RANGÉE 6 (y=169) ================= */
+    {   4,169, W1, H_BOT, SDLK_LSHIFT,   "Shift",   "",       "",    SDK_WHITE },
+    {  56,169, W2, H_BOT, SDLK_y,        "1",       "Prog",   "Y",   SDK_WHITE },
+    { 108,169, W2, H_BOT, SDLK_z,        "2",       "i",      "Z",   SDK_WHITE },
+    { 160,169, W2, H_BOT, SDLK_3,        "3",       "pi",     "#",   SDK_WHITE },
+    { 212,169, W1, H_BOT, SDLK_MINUS,    "-",       "Base",   ":",   SDK_WHITE },
+
+    /* ================= RANGÉE 7 (y=190) ================= */
+    {   4,190, W1, H_BOT, SDLK_ESCAPE,   "On",      "Off",    "",    SDK_WHITE },
+    {  56,190, W2, H_BOT, SDLK_0,        "0",       "Notes",  "\"\"",SDK_WHITE },
+    { 108,190, W2, H_BOT, SDLK_PERIOD,   ".",       "=",      "",    SDK_WHITE },
+    { 160,190, W2, H_BOT, SDLK_SPACE,    "Space",   "_",      "",    SDK_WHITE },
+    { 212,190, W1, H_BOT, SDLK_PLUS,     "+",       "Ans",    ";",   SDK_WHITE }
+};
+
+/* Dimensions de la partie haute (Mode Portrait - hauteur * 1.5) */
+#define W_STD_PORTRAIT 44
+#define H_STD_PORTRAIT 42   /* 28 * 1.5 */
+#define H_SM_PORTRAIT  30   /* 20 * 1.5 */
+
+static const vkey portrait_g2_keypad_top[] = {
+    /* --- Gauche Col 1 (2 touches) --- */
+    /* x,    y,  w,  h, keycode,     main,   shift,   alpha, bg */
+    {   6,   6, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_LALT,     "Apps",  "Info",  "",    SDK_BLACK },
+    {   6,  55, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_LMETA,    "Home",  "Mode",  "",    SDK_BLACK }, /* y: 6 + 30 + 19 (espacement ajusté) */
+
+    /* --- Gauche Col 2 (3 touches plus petites) --- */
+    {  54,   6, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_F1,       "Symb",  "Setup", "",    SDK_BLACK },
+    {  54,  37, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_F2,       "Plot",  "Setup", "",    SDK_BLACK }, /* 6 + 30 + 1 */
+    {  54,  68, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_F3,       "Num",   "Setup", "",    SDK_BLACK }, /* 37 + 30 + 1 */
+
+    /* --- Centre : Pavé Directionnel (D-Pad) --- */
+    { 138,   6, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_UP,       "^",     "",      "",    SDK_BLACK },
+    { 112,  37, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_LEFT,     "<",     "",      "",    SDK_BLACK },
+    { 164,  37, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_RIGHT,    ">",     "",      "",    SDK_BLACK },
+    { 138,  68, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_DOWN,     "v",     "",      "",    SDK_BLACK },
+    
+    /* --- Droite Col 3 (3 touches plus petites) --- */
+    { 222,   6, W_STD_PORTRAIT, H_SM_PORTRAIT, 9,             "Help",  "User",  "",    SDK_BLACK },
+    { 222,  37, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_F5,       "View",  "Copy",  "",    SDK_BLACK },
+    { 222,  68, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_MENU,     "Menu",  "Paste", "",    SDK_BLACK },
+
+    /* --- Droite Col 4 (2 touches) --- */
+    { 270,   6, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_ESCAPE,   "Esc",   "Clear", "",    SDK_BLACK },
+    { 270,  55, W_STD_PORTRAIT, H_SM_PORTRAIT, SDLK_LCTRL,    "CAS",   "Settings","",  SDK_BLACK }
+};
+
+#define W1_PORTRAIT    46    /* Touche standard 6-colonnes */
+#define W2_PORTRAIT    48    /* Touche pavé numérique élargi */
+#define W_ENT_PORTRAIT 98    /* Touche Enter double largeur */
+#define H_BOT_PORTRAIT 30    /* 20 * 1.5 */
+
+static const vkey portrait_g2_keypad_bottom[] = {
+    /* ================= RANGÉE 1 (y=101) ================= */
+    /* x,    y,  w,  h, keycode,        main,      shift,    alpha, bg */
+    {   4, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_a,        "Var",     "char",   "A",   SDK_WHITE }, /* 68 + 30 + 3 */
+    {  56, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_b,        "Tool",    "mem",    "B",   SDK_WHITE },
+    { 108, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_c,        "Eqw",     "unit",   "C",   SDK_WHITE },
+    { 160, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_d,        "x,t",     "def",    "D",   SDK_WHITE },
+    { 212, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_e,        "ab/c",    "'\"",    "E",   SDK_WHITE },
+    { 264, 101, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_BACKSPACE,"<--",     "Del",    "",    SDK_WHITE },
+
+    /* ================= RANGÉE 2 (y=132) ================= */
+    {   4, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_f,        "x^y",     "^(1/",   "F",   SDK_WHITE }, /* 101 + 30 + 1 */
+    {  56, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_g,        "sin",     "asin",   "G",   SDK_WHITE },
+    { 108, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_h,        "cos",     "acos",   "H",   SDK_WHITE },
+    { 160, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_i,        "tan",     "atan",   "I",   SDK_WHITE },
+    { 212, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_j,        "ln",      "exp",    "J",   SDK_WHITE },
+    { 264, 132, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_k,        "log",     "10^x",   "K",   SDK_WHITE },
+
+    /* ================= RANGÉE 3 (y=163) ================= */
+    {   4, 163, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_l,        "x^2",     "sqrt",   "L",   SDK_WHITE }, /* 132 + 30 + 1 */
+    {  56, 163, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_m,        "+-",      "|x|",    "M",   SDK_WHITE },
+    { 108, 163, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_n,        "()",      "''",     "N",   SDK_WHITE },
+    { 160, 163, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_o,        ",",       "Eval",   "O",   SDK_WHITE },
+    { 212, 163, W_ENT_PORTRAIT, H_BOT_PORTRAIT, SDLK_RETURN, "Enter",   "approx", "",    SDK_WHITE },
+
+    /* ================= RANGÉE 4 (y=194) ================= */
+    {   4, 194, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_p,        "EEX",     "Sto",    "P",   SDK_WHITE }, /* 163 + 30 + 1 */
+    {  56, 194, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_q,        "7",       "List",   "Q",   SDK_WHITE },
+    { 108, 194, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_r,        "8",       "{}",     "R",   SDK_WHITE },
+    { 160, 194, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_s,        "9",       "!",      "S",   SDK_WHITE },
+    { 212, 194, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_t,        "/",       "inv",    "T",   SDK_WHITE },
+
+    /* ================= RANGÉE 5 (y=225) ================= */
+    {   4, 225, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_LALT,     "ALPHA",   "",   "",    SDK_WHITE }, /* 194 + 30 + 1 */
+    {  56, 225, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_u,        "4",       "Mtrx",   "U",   SDK_WHITE },
+    { 108, 225, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_v,        "5",       "[]",     "V",   SDK_WHITE },
+    { 160, 225, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_w,        "6",       "<>",     "W",   SDK_WHITE },
+    { 212, 225, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_x,        "*",       "angl",   "X",   SDK_WHITE },
+
+    /* ================= RANGÉE 6 (y=256) ================= */
+    {   4, 256, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_LSHIFT,   "Shift",   "",       "",    SDK_WHITE }, /* 225 + 30 + 1 */
+    {  56, 256, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_y,        "1",       "Prog",   "Y",   SDK_WHITE },
+    { 108, 256, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_z,        "2",       "i",      "Z",   SDK_WHITE },
+    { 160, 256, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_3,        "3",       "pi",     "#",   SDK_WHITE },
+    { 212, 256, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_MINUS,    "-",       "Base",   ":",   SDK_WHITE },
+
+    /* ================= RANGÉE 7 (y=287) ================= */
+    {   4, 287, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_ESCAPE,   "On",      "Off",    "",    SDK_WHITE }, /* 256 + 30 + 1 */
+    {  56, 287, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_0,        "0",       "Notes",  "\"",SDK_WHITE },
+    { 108, 287, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_PERIOD,   ".",       "=",      "",    SDK_WHITE },
+    { 160, 287, W2_PORTRAIT, H_BOT_PORTRAIT, SDLK_SPACE,    "Space",   "_",      "",    SDK_WHITE },
+    { 212, 287, W1_PORTRAIT, H_BOT_PORTRAIT, SDLK_PLUS,     "+",       "Ans",    ";",   SDK_WHITE }
+};
+#define NUM_VKEYS_TOP (sizeof(g2_keypad_top) / sizeof(vkey))
+#define NUM_VKEYS_BOTTOM (sizeof(g2_keypad_bottom) / sizeof(vkey))
+
+/* Routine de dessin du clavier virtuel 100% intégrée */
+void draw_vkeypad(int offset_x, int offset_y, const vkey *keys, unsigned num_keys) {
+  for (unsigned i = 0; i < num_keys; ++i) {
+    const vkey *k = &keys[i];
+
+    //int kx = offset_x + k->x;
+    //int ky = offset_y + k->y;
+
+    /* 2. Couleur du texte principal opposée au fond de la touche */
+    unsigned short main_fg = (k->bg==SDK_BLACK) ? SDK_WHITE : SDK_BLACK;
+    int bg = (k->bg==SDK_BLACK) ? 0x7BEF :SDK_WHITE;
+    os_fill_rect_nock(offset_x+k->x,offset_y+k->y,k->w,k->h,bg);
+    if (strcmp(k->main,"ALPHA")==0){
+      bg = G2_ALPHA;
+      main_fg = SDK_WHITE; 
+    }
+    else if (strcmp(k->main,"Shift")==0){
+      bg = G2_SHIFT;
+      main_fg = SDK_WHITE; 
+    }
+    /* 3. Sérigraphie Shift (Orange G2) - DESSINÉE DANS LE HAUT DE LA TOUCHE */
+    if (k->shift && k->shift[0]) {
+      /* x = coin gauche + 2px, y = coin bas - 8px */
+      if (compact_keyboard)
+	offset_draw_string(offset_x, offset_y, k->x + 2, k->y + k->h-8, k->shift, G2_SHIFT, bg, 8);
+      else
+	offset_draw_string(offset_x, offset_y, k->x + 2, k->y + 17, k->shift, G2_SHIFT, bg, 12);
+    }
+    /* 4. Sérigraphie Alpha (Bleu G2) - DESSINÉE EN HAUT À DROITE DE LA TOUCHE */
+    if (k->alpha && k->alpha[0]) {
+      /* x = coin droit - 10px, y = coin bas -8px */
+      if (compact_keyboard)
+	offset_draw_string(offset_x, offset_y, k->x + k->w - 10, k->y + k->h-8, k->alpha, G2_ALPHA, bg, 8);
+      else
+	offset_draw_string(offset_x, offset_y, k->x + k->w - 10, k->y + 16, k->alpha, G2_ALPHA, bg, 14);
+    }
+    /* 5. Sérigraphie Principale - Bas/Centre de la touche */
+    if (k->main && k->main[0]) {
+#if 1
+      int text_width = strlen(k->main) * 7;
+      int tx = k->x + ((k->w - text_width) / 2);
+#else
+      int tx = k->x + (k->w / 4);
+#endif
+      if (compact_keyboard)
+	offset_draw_string(offset_x, offset_y, tx, k->y, k->main, main_fg, bg, 14);
+      else {
+	offset_draw_string(offset_x, offset_y, tx, k->y, k->main, main_fg, bg, 16);	
+      }
+    }
+  }
+}
+
+void draw_g2_keyboard(SDL_Surface *buffer) {
+  /* Offset vertical pour placer le clavier sous l'écran de 240px */
+  const int offset_x = 0;
+  const int offset_y = LCD_HEIGHT_PX;
+  if (compact_keyboard){
+    int dy1=64,dy2=160;
+    SDL_Rect keypad_bg = { offset_x, offset_y, LCD_WIDTH_PX, dy1};  
+    SDL_Rect bottom_bg = { offset_x, offset_y+dy1, LCD_WIDTH_PX, dy2 };
+#ifdef __EMSCRIPTEN__
+    if (SDL_MUSTLOCK(buffer)) SDL_UnlockSurface(buffer); // sécurité si oublié ailleurs
+    SDL_FillRect(buffer, &keypad_bg, SDL_MapRGB(buffer->format, 0x40,0x40,0x40));
+    SDL_FillRect(buffer, &bottom_bg, SDL_MapRGB(buffer->format, 0xc0,0xc0,0xc0));
+    if (SDL_MUSTLOCK(buffer)) SDL_LockSurface(buffer); // sécurité si oublié ailleurs
+#else
+    SDL_FillRect(buffer, &keypad_bg,0x404040);
+    SDL_FillRect(buffer, &bottom_bg,0xc0c0c0);
+#endif
+    draw_vkeypad(offset_x, offset_y, g2_keypad_top, NUM_VKEYS_TOP);
+    draw_vkeypad(offset_x, offset_y, g2_keypad_bottom, NUM_VKEYS_BOTTOM);
+    offset_draw_string(offset_x,offset_y,280,png_y_offset,"PNG",COLOR_WHITE,COLOR_BLACK,16);
+  } else {
+    int dy1=99,dy2=240;
+    SDL_Rect keypad_bg = { offset_x, offset_y, LCD_WIDTH_PX, dy1};  
+    SDL_Rect bottom_bg = { offset_x, offset_y+dy1, LCD_WIDTH_PX, dy2 };
+#ifdef __EMSCRIPTEN__
+    if (SDL_MUSTLOCK(buffer)) SDL_UnlockSurface(buffer); // sécurité si oublié ailleurs
+    SDL_FillRect(buffer, &keypad_bg, SDL_MapRGB(buffer->format, 0x40,0x40,0x40));
+    SDL_FillRect(buffer, &bottom_bg, SDL_MapRGB(buffer->format, 0xc0,0xc0,0xc0));
+    if (SDL_MUSTLOCK(buffer)) SDL_LockSurface(buffer); // sécurité si oublié ailleurs
+#else
+    SDL_FillRect(buffer, &keypad_bg,0x404040);
+    SDL_FillRect(buffer, &bottom_bg,0xc0c0c0);
+#endif
+    draw_vkeypad(offset_x, offset_y, portrait_g2_keypad_top, NUM_VKEYS_TOP);
+    draw_vkeypad(offset_x, offset_y, portrait_g2_keypad_bottom, NUM_VKEYS_BOTTOM);
+    offset_draw_string(offset_x,offset_y,280,png_y_offset*3/2,"PNG",COLOR_WHITE,COLOR_BLACK,16);
+  }
+}
+
+/* Interception des clics et renvoi du code SDL */
+int check_vkeypad_click(int lx, int ly, int offset_x, int offset_y) {
+  int kx = lx - offset_x;
+  int ky = ly - offset_y;
+  
+  for (unsigned i = 0; i < NUM_VKEYS_TOP; ++i) {
+    const vkey *k = compact_keyboard?&g2_keypad_top[i]:&portrait_g2_keypad_top[i];
+    if (kx >= k->x && kx < (k->x + k->w) &&
+        ky >= k->y && ky < (k->y + k->h)) {      
+      /* Renvoie le keycode SDL pour passage ultérieur à prime_translate */
+      return k->keycode;
+    }
+  }
+  for (unsigned i = 0; i < NUM_VKEYS_BOTTOM; ++i) {
+    const vkey *k = compact_keyboard?&g2_keypad_bottom[i]:&portrait_g2_keypad_bottom[i];
+    if (kx >= k->x && kx < (k->x + k->w) &&
+        ky >= k->y && ky < (k->y + k->h)) {      
+      /* Renvoie le keycode SDL pour passage ultérieur à prime_translate */
+      return k->keycode;
+    }
+  }
+  int png_top = compact_keyboard?png_y_offset:png_y_offset*3/2;
+  int png_bottom = compact_keyboard?(png_y_offset+H_STD):(png_y_offset+H_STD)*3/2;
+  if (kx>280 && ky>=png_top && ky<=png_bottom){
+    static int capture=0;
+    ++capture;
+    char filename[128];
+    sprintf(filename,"pic%03d.png",capture);
+    save_screen_png(buffer,filename);
+    sprintf(filename,"pic%03d",capture);
+    offset_draw_string(offset_x,offset_y,270,png_bottom,filename,COLOR_BLACK,COLOR_WHITE,14);
+    sync_screen();
+  }
+  return SDLK_UNKNOWN;
+}
+
+void inject_key_event(SDLKey keycode, Uint8 type) {
+  if (keycode == SDLK_UNKNOWN || keycode == 0) return;
+  
+  SDL_Event ev;
+  ev.type = type; // SDL_KEYDOWN ou SDL_KEYUP
+  ev.key.state = (type == SDL_KEYDOWN) ? SDL_PRESSED : SDL_RELEASED;
+  ev.key.keysym.sym = keycode;
+  ev.key.keysym.mod = KMOD_NONE;
+  ev.key.keysym.scancode = 0;
+  
+  SDL_PushEvent(&ev);
+}
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
+#if defined(__APPLE__)
+#include <Carbon/Carbon.h>
+
+int is_azerty(void) {
+    TISInputSourceRef current_input_source = TISCopyCurrentKeyboardInputSource();
+    CFStringRef source_id = (CFStringRef)TISGetInputSourceProperty(current_input_source, kTISPropertyInputSourceID);
+    
+    int is_azerty = 0;
+    if (source_id) {
+        char buf[128];
+        if (CFStringGetCString(source_id, buf, sizeof(buf), kCFStringEncodingUTF8)) {
+            // Les layouts français Mac contiennent généralement "French" ou "AZERTY"
+            if (strstr(buf, "French") || strstr(buf, "AZERTY") || strstr(buf, ".fr.")) {
+                is_azerty = 1;
+            }
+        }
+    }
+    CFRelease(current_input_source);
+    return is_azerty;
+}
+#else
+int is_azerty(void) {
+  char *lang = getenv("LANG");
+  if (lang && strstr(lang, "fr")) return 1;
+  return 0;
+}
+#endif
+int azerty=0;
+
+int sdk_init(){
+  printf("sdk_init\n");
+  setup_crash_signals();
+  azerty=is_azerty();
+#if 0 // def __EMSCRIPTEN__
+  /* Détection JS de la résolution/type d'appareil :
+     - Smartphone / Mobile : compact_keyboard = 0 (clavier standard)
+     - PC / Grand écran   : compact_keyboard = 1 (clavier compact)
+  */
+  compact_keyboard = EM_ASM_INT({
+      // Détection mobile via 'matchMedia' ou 'useragent'
+      var is_mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      // On vérifie aussi si la largeur de fenêtre est typique d'un écran mobile
+      var is_small_screen = (window.innerWidth < 600);
+      console.log('is_mobile, is_small_screen',is_mobile,is_small_screen);
+      if (is_mobile || is_small_screen) {
+        return 0; // Clavier non compact pour smartphone
+      } else {
+        return 1; // Clavier compact pour PC
+      }
+    });  
+#endif
+  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    fprintf(stderr, "Erreur SDL_Init : %s\n", SDL_GetError());
+    return EXIT_FAILURE;
+  }
+  
+#ifdef TARGET_ARM
+  
+  const SDL_VideoInfo* info = SDL_GetVideoInfo();
+  int bpp = info ? info->vfmt->BitsPerPixel : 16;
+  screen = SDL_SetVideoMode(LCD_WIDTH_PX, LCD_HEIGHT_PX, bpp, SDL_SWSURFACE | SDL_ANYFORMAT | SDL_FULLSCREEN);
+  buffer = screen;
+  SDL_ShowCursor(SDL_DISABLE);
+  if (!screen || !buffer) {
+    fprintf(stderr, "Erreur initialisation surfaces : %s\n", SDL_GetError());
+    SDL_Quit();
+    return EXIT_FAILURE;
+  }
+  fb_screen=buffer->pixels;
+
+#else // Host
+#if !defined __EMSCRIPTEN__
+  sdl_scale=2;
+#endif
+  // Curseur 16x16 pixels (double de la taille 8x8 d'origine)
+  static Uint8 data[32] = {
+    // Ligne 0 & 1 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00,
+    // Ligne 2 & 3 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00,
+    // Ligne 4 & 5 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00,
+    // Ligne 6, 7, 8 & 9 : la barre horizontale (ancien 0xFE -> 0xFF, 0xFC)
+    0xFF, 0xFC,  0xFF, 0xFC,
+    0xFF, 0xFC,  0xFF, 0xFC,
+    // Ligne 10 & 11 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00,
+    // Ligne 12 & 13 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00,
+    // Ligne 14 & 15 (ancien 0x10 -> 0x0C, 0x00)
+    0x0C, 0x00,  0x0C, 0x00
+  };
+  static Uint8 mask[32] = {
+    0x0C, 0x00,  0x0C, 0x00,
+    0x0C, 0x00,  0x0C, 0x00,
+    0x0C, 0x00,  0x0C, 0x00,
+    0xFF, 0xFC,  0xFF, 0xFC,
+    0xFF, 0xFC,  0xFF, 0xFC,
+    0x0C, 0x00,  0x0C, 0x00,
+    0x0C, 0x00,  0x0C, 0x00,
+    0x0C, 0x00,  0x0C, 0x00
+  };
+  // Création du curseur 16x16 : le point chaud (hotspot) passe de (3,3) à (7,7)
+  sdl_cursor = SDL_CreateCursor(data, mask, 16, 16, 7, 7);
+  SDL_SetCursor(sdl_cursor);
+  SDL_ShowCursor(SDL_ENABLE);
+  int h=compact_keyboard?LCD_HEIGHT_PX+212:LCD_HEIGHT_PX+320;
+  screen = SDL_SetVideoMode(LCD_WIDTH_PX*sdl_scale, h*sdl_scale, 32, SDL_SWSURFACE);
+#if defined __EMSCRIPTEN__
+  buffer=screen;
+  if (SDL_MUSTLOCK(buffer)) SDL_LockSurface(buffer);
+#else
+  buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, LCD_WIDTH_PX, h, 32,screen->format->Rmask,screen->format->Gmask,screen->format->Bmask,screen->format->Amask);
+#endif
+  if (!screen || !buffer) {
+    fprintf(stderr, "Erreur initialisation surfaces : %s\n", SDL_GetError());
+    SDL_Quit();
+    return EXIT_FAILURE;
+  }
+  fb_screen=buffer->pixels;
+  draw_g2_keyboard(buffer);
+#endif
+  
+  // Activer la répétition : SDL_EnableKeyRepeat(délai_initial_ms, intervalle_répétition_ms);
+  // Exemple : 300 ms avant de répéter, puis un événement toutes les 100 ms.
+  SDL_EnableKeyRepeat(300, 100);
+  // Initialisation des couleurs
+  //Uint32 bg_red   = SDL_MapRGB(buffer->format, 255, 0, 0);
+  //Uint32 bg_blue  = SDL_MapRGB(buffer->format, 0, 128, 255);
+  //Uint32 bg_green = SDL_MapRGB(buffer->format, 0, 200, 80);
+  //Uint32 current_color = bg_red;
+  printf("sdk_init end\n");
+  
+  return 0;
+}
+
+int sdk_end(void) {
+  if (sdl_cursor)
+    SDL_FreeCursor(sdl_cursor);
+#ifndef TARGET_ARM
+  if (buffer && buffer != screen) {
+    if (SDL_MUSTLOCK(buffer)) SDL_UnlockSurface(buffer);
+    SDL_FreeSurface(buffer);
+    buffer = NULL;
+  }
+#endif
+  SDL_Quit();
+  screen = NULL;
+  buffer = NULL;
+  fb_screen = NULL;   /* ajout : évite les pointeurs pendants */
+  return 0;
+}
+ 
+void sync_screen(){
+#if defined TARGET_ARM 
+  SDL_UpdateRect(screen, 0, 0, 0, 0);
+#elif defined __EMSCRIPTEN__
+  if (SDL_MUSTLOCK(buffer)){
+    SDL_UnlockSurface(buffer); 
+    SDL_UpdateRect(screen, 0, 0, 0, 0);
+    //printf("buffer=%p screen=%p\n", (void*)buffer, (void*)screen);
+    emscripten_sleep(1);
+    SDL_LockSurface(buffer);
+  }
+  else {
+    SDL_UpdateRect(screen, 0, 0, 0, 0);
+    //printf("buffer=%p screen=%p\n", (void*)buffer, (void*)screen);
+    emscripten_sleep(1);
+  }
+#else
+  // Redimensionne le buffer 320x240 vers la surface screen 640x480
+  SDL_SoftStretch(buffer, NULL, screen, NULL);
+  SDL_UpdateRect(screen, 0, 0, 0, 0);
+#endif
+}
+
+int get_fb(){
+  fb_screen = buffer->pixels;
+  if (!fb_screen)
+    return 2;
+  return 0;
+}
+
+#ifdef __EMSCRIPTEN__
+int c_rgb565to888( int c){
+  c &= 0xffff;
+  int r = (c>>11)&0x1f, g = (c>>5)&0x3f, b = c&0x1f;
+  Uint8 r8 = (r<<3)|(r>>2);
+  Uint8 g8 = (g<<2)|(g>>4);
+  Uint8 b8 = (b<<3)|(b>>2);
+  return SDL_MapRGB(buffer->format, r8, g8, b8);
+}
+#else
+int c_rgb565to888(int c){
+  c &= 0xffff;
+  int r=(c>>11)&0x1f,g=(c>>5)&0x3f,b=c&0x1f;
+  return (r<<19)|(g<<10)|(b<<3);
+}
+#endif
+
+int c_rgb888to565(int c){
+  c &= 0xffffff;
+  int r=(c>>19),g=((c>>8)&0xff)>>2,b=(c&0xff)>>3;
+  return (r<<11)|(g<<5)|(b);
+}
+
+void os_set_pixel(int x,int y,int c){
+  y += prime_statusarea;
+  if (x < 0 || x >= LCD_WIDTH_PX || y < 0 || y >= LCD_HEIGHT_PX) return;
+  uint32_t *pixels = (uint32_t *)buffer->pixels;
+  pixels[y * (buffer->pitch / 4) + x] = (uint32_t)c_rgb565to888(c);
+}
+
+int os_get_pixel(int x,int y){
+  y += prime_statusarea;
+  if (x < 0 || x >= LCD_WIDTH_PX || y < 0 || y >= LCD_HEIGHT_PX) return 0;
+  uint32_t *pixels = (uint32_t *)buffer->pixels;
+  uint32_t color888 = pixels[y * (buffer->pitch / 4) + x];
+  return c_rgb888to565((int)color888);
+}
+
+void os_fill_rect_nock(int x,int y,int w,int h,int c){
+  SDL_Rect rect = { x, y, w, h };
+  uint32_t color888 = (uint32_t)c_rgb565to888(c);
+
+#ifdef __EMSCRIPTEN__
+  if (SDL_MUSTLOCK(buffer)){
+#if 1
+    unsigned *pixels = (unsigned *)buffer->pixels;
+    int stride = buffer->pitch / 4;
+    for (int j=0;j<h;++j){
+      unsigned *row = pixels + (y+j)*stride + x;
+      for (int i=0;i<w;++i)
+        row[i] = color888;
+    }
+#else
+    SDL_UnlockSurface(buffer);
+    SDL_FillRect(buffer, &rect, color888);
+    SDL_LockSurface(buffer);
+#endif
+  }
+  else
+    SDL_FillRect(buffer, &rect, color888);
+#else
+  SDL_FillRect(buffer, &rect, color888);
+#endif
+}
+
+void os_fill_rect(int x,int y,int w,int h,int c){
+  y += prime_statusarea;
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > LCD_WIDTH_PX) w = LCD_WIDTH_PX - x;
+  if (y + h > LCD_HEIGHT_PX) h = LCD_HEIGHT_PX - y;
+  if (w <= 0 || h <= 0) return;
+  os_fill_rect_nock(x,y,w,h,c);
+}
+
+
+int waitforvblank(){
+  return 0;
+}
+
+int back_key_pressed(){
+  SDL_Event event;
+  /* Traite les événements en attente dans la file */
+  while (SDL_PollEvent(&event)){
+    if (event.type == SDL_QUIT) return 1;
+  }  
+  /* Récupère l'état instantané du clavier */
+  Uint8 *keystate = SDL_GetKeyState(NULL);
+  if (keystate[SDLK_ESCAPE] || keystate[SDLK_BACKSPACE]) return 1;
+  return 0;
+}  
+
+// next 3 functions may be void if not inside a window class hierarchy
+void os_show_graph(){} // show graph inside Python shell (Numworks), not used
+void os_hide_graph(){} // hide graph, not used anymore
+void os_redraw(){} // force redraw of window class hierarchy
+
+int os_set_angle_unit(int mode){
+  (void) mode;
+  return false;
+}
+int os_get_angle_unit(){
+  return 0;
+}
+
+double millis(){
+  return (double)SDL_GetTicks();
+}
+
+void get_hms(int *h,int *m,int *s){
+  time_t t = time(NULL);
+  struct tm *now = localtime(&t);
+  if (now){
+    if (h) *h = now->tm_hour;
+    if (m) *m = now->tm_min;
+    if (s) *s = now->tm_sec;
+  } else {
+    if (h) *h = 0;
+    if (m) *m = 0;
+    if (s) *s = 0;
+  }
+}
+
+void get_time(int *h,int *m){
+  time_t t = time(NULL);
+  struct tm *now = localtime(&t);
+  if (now){
+    if (h) *h = now->tm_hour;
+    if (m) *m = now->tm_min;
+  } else {
+    if (h) *h = 0;
+    if (m) *m = 0;
+  }
+}
+
+void set_time(int h,int m){
+  time_t t = time(NULL);
+  struct tm *now = localtime(&t);
+  if (!now) return;
+  now->tm_hour = h;
+  now->tm_min = m;
+  now->tm_sec = 0;
+  time_t new_t = mktime(now);
+#ifdef _GNU_SOURCE
+  if (new_t != (time_t)-1){
+    struct timespec ts;
+    ts.tv_sec = new_t;
+    ts.tv_nsec = 0;
+    clock_settime(CLOCK_REALTIME, &ts);
+  }
+#endif
+}
+
+void ck_msleep(int ms){
+  if (ms>0)
+    SDL_Delay(ms);
+}
+
+void OSSleep(int ms){
+  if (ms>0)
+    SDL_Delay(ms);
+}
+
+void os_wait_1ms(int ms){
+  ck_msleep(ms);
+}
+
+#if 0
+int file_exists(const char *path) {
+  struct stat st;
+  return (stat(path, &st) == 0);
+}
+#else
+int file_exists(const char * filename){
+  if (!filename) return 0;
+  return access(filename, F_OK) == 0;
+}
+#endif
+
+int erase_file(const char * filename){
+  if (!filename) return 0;
+  return remove(filename) == 0;
+}
+
+#define HPG2_FILEBUFFER (1024*1204)
+char hpg2_filebuf[HPG2_FILEBUFFER];
+
+const char * read_file_size(const char * filename,unsigned * sizeptr){
+  if (!filename) return NULL;
+  FILE *f = fopen(filename, "rb");
+  if (!f) return NULL;
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  if (sz < 0 || sz >= HPG2_FILEBUFFER){
+    fclose(f);
+    return NULL;
+  }
+  fseek(f, 0, SEEK_SET);
+  size_t read_bytes = fread(hpg2_filebuf, 1, sz, f);
+  fclose(f);
+  hpg2_filebuf[read_bytes] = 0;
+  if (sizeptr) *sizeptr = (unsigned)read_bytes;
+  return hpg2_filebuf;
+}
+
+const char * read_file(const char * filename){
+  unsigned s;
+  return read_file_size(filename,&s);
+}
+
+int write_file(const char * filename,const char * s,int len){
+  char path[1024]={0};
+  getcwd(path,sizeof(path));
+  fprintf(stderr,"write_file path=%s file=%s s=%s\n",path,filename,s);
+  if (!filename || !s) return 0;
+  FILE *f = fopen(filename, "wb");
+  if (!f) return 0;
+  size_t written = fwrite(s, 1, len, f);
+  fclose(f);
+  fprintf(stderr,"written=%i len=%i\n",written,len);
+  return written == (size_t)len;
+}
+
+#include <dirent.h>
+#include <sys/types.h>
+
+#define FILENAME_MAXRECORDS 64
+#define FILENAME_MAXSIZE 16
+char os_filenames[FILENAME_MAXRECORDS][FILENAME_MAXSIZE];
+
+int c_trialpha(const void *p1,const void *p2){
+  const char *s1 = *(const char **)p1;
+  const char *s2 = *(const char **)p2;
+  return strcmp(s1, s2);
+}
+
+char minuscule(char c){
+  if (c >= 'A' && c <= 'Z') return c + 0x20;
+  return c;
+}
+
+int my_strcmp(const char *s1,const char *s2){
+  while (*s1 && minuscule(*s1) == minuscule(*s2)){
+    s1++;
+    s2++;
+  }
+  return minuscule(*s1) - minuscule(*s2);
+}
+
+int os_file_browser(const char **filenames,int maxrecords,const char *extension,int storage){
+  DIR *dir = opendir(".");
+  if (!dir){
+    filenames[0] = NULL;
+    return 0;
+  }
+
+  int cur = 0;
+  struct dirent *entry;
+
+  while ((entry = readdir(dir)) != NULL){
+    if (cur >= maxrecords || cur >= FILENAME_MAXRECORDS) break;
+
+    const char *s_ = entry->d_name;
+    const char *ext = NULL;
+    int l = strlen(s_), j;
+    char s[l + 1];
+    strcpy(s, s_);
+
+    for (j = l - 1; j > 0; --j){
+      if (s[j] == '.'){
+        ext = s + j + 1;
+        break;
+      }
+    }
+
+    if (ext && my_strcmp(ext, "tns") == 0){
+      s[j] = 0;
+      for (; j > 0; --j){
+        if (s[j] == '.'){
+          ext = s + j + 1;
+          break;
+        }
+      }
+    }
+
+    if (ext && my_strcmp(ext, extension) == 0){
+      if (exam_mode &&
+          (my_strcmp(s_, "session.xw") != 0 &&
+           my_strcmp(s_, "session.xw.tns") != 0 &&
+           my_strcmp(s_, "session.py") != 0 &&
+           my_strcmp(s_, "session.py.tns") != 0))
+        continue;
+
+      strncpy(os_filenames[cur], s_, FILENAME_MAXSIZE - 1);
+      os_filenames[cur][FILENAME_MAXSIZE - 1] = 0;
+      filenames[cur] = os_filenames[cur];
+      ++cur;
+    }
+  }
+
+  closedir(dir);
+  filenames[cur] = NULL;
+
+  if (cur > 0){
+    qsort(filenames, cur, sizeof(const char *), c_trialpha);
+  }
+
+  return cur;
+}
+
+int os_draw_string(int x,int y,int c,int bg,const char * s,int fake){
+  if (fake)
+    return x+strlen(s)*8;
+  return vGL_putString(x,y+prime_statusarea+2,s,c_rgb565to888(c),c_rgb565to888(bg),16);
+}
+
+int os_draw_string_medium(int x,int y,int c,int bg,const char * s,int fake){
+  if (fake)
+    return x+strlen(s)*7;
+  return vGL_putString(x,y+prime_statusarea+2,s,c_rgb565to888(c),c_rgb565to888(bg),14);
+}
+
+int os_draw_string_small(int x,int y,int c,int bg,const char * s,int fake){
+  if (fake)
+    return x+strlen(s)*6;
+  return vGL_putString(x,y+prime_statusarea,s,c_rgb565to888(c),c_rgb565to888(bg),12);
+}
+
+const int statuscolor=COLOR_CYAN;
+void statuslinemsg(const char * msg){
+  os_fill_rect(0,-prime_statusarea,230,prime_statusarea,statuscolor);
+  os_draw_string(0,-prime_statusarea,SDK_BLACK,statuscolor,msg,false);
+}
+
+void display_time(){
+  int h,m,s;
+  get_hms(&h,&m,&s);
+  char msg[10];
+  msg[0]=' ';
+  msg[1]='0'+(h/10);
+  msg[2]='0'+(h%10);
+  msg[3]= 'h';
+  msg[4]= ('0'+(m/10));
+  msg[5]= ('0'+(m%10));
+  msg[6]=0;
+  //msg[6]= 'm';
+  //msg[7] = ('0'+(s/10));
+  //msg[8] = ('0'+(s%10));
+  //msg[9]=0;
+  int bg=exam_bg();
+  os_fill_rect(270,-prime_statusarea,LCD_WIDTH_PX,prime_statusarea,bg);
+  os_draw_string_medium(270,-prime_statusarea,SDK_BLACK,bg,msg,false);
+}
+
+#define ADC_RAW_PATH   "/sys/bus/iio/devices/iio:device0/in_voltage1_raw"
+#define ADC_SCALE_PATH "/sys/bus/iio/devices/iio:device0/in_voltage_scale"
+#define AC_ONLINE_PATH "/sys/class/power_supply/pf1550-charger/online"
+
+/* Facteur du pont diviseur HP : (120k + 300k) / 300k = 1.4 */
+#define DIVIDER_FACTOR   1.4
+/* Seuil et offsets empiriques HP */
+#define STAGE_THRESHOLD_MV 3760.0
+#define OFFSET_STAGE1_MV   46.0   /* si VBAT > seuil */
+#define OFFSET_STAGE2_MV   22.0   /* si VBAT <= seuil */
+
+static int read_double_file(const char *path, double *out){
+  int fd = open(path, O_RDONLY);
+  char buf[64];
+  ssize_t n;
+  if (fd<0) return 0;
+  n = read(fd, buf, sizeof(buf)-1);
+  close(fd);
+  if (n <= 0) return 0;
+  buf[n] = '\0';
+  *out = atof(buf);
+  return 1;
+}
+
+static int read_int_file(const char *path, int *out){
+  int fd = open(path, O_RDONLY);
+  char buf[32];
+  ssize_t n;
+  if (fd<0) return 0;
+  n = read(fd, buf, sizeof(buf)-1);
+  close(fd);
+  if (n <= 0) return 0;
+  buf[n] = '\0';
+  *out = atoi(buf);
+  return 1;
+}
+
+static int mv_to_percent(double vbat_mv){
+  if (vbat_mv <= 3500.0) return 0;
+  if (vbat_mv <= 3663.0) return 25;
+  if (vbat_mv <= 3699.0) return 50;
+  if (vbat_mv <= 3862.0) return 75;
+  return 100;
+}
+
+int battery_level(){
+#ifdef TARGET_ARM
+  double raw = 0, scale = 0;
+  double vpin_mv, vbat_mv;
+  int pct;
+  int ac_online = 0;  
+  if (!read_double_file(ADC_RAW_PATH, &raw))
+    return -1;
+  if (!read_double_file(ADC_SCALE_PATH, &scale))
+    return -1;
+  if (0){
+    int v;
+    if (read_int_file(AC_ONLINE_PATH, &v)) {
+      ac_online = (v != 0);
+    }
+    if (ac_online)
+      pct = 100; /* comme HP force 100% quand le chargeur est branche */
+  }
+  vpin_mv = raw*scale;
+  vbat_mv = vpin_mv*DIVIDER_FACTOR;
+  vbat_mv += (vbat_mv>STAGE_THRESHOLD_MV)? OFFSET_STAGE1_MV : OFFSET_STAGE2_MV;
+  pct = mv_to_percent(vbat_mv);
+  return pct;
+#else
+  return 100;
+#endif
+}
+
+void (*offon_handler)(const void * param)=0;
+const void * offon_param=0;
+volatile unsigned prime_keydown;
+volatile unsigned prime_mousex,prime_mousey,prime_event;
+volatile unsigned prime_keydown=0;
+volatile unsigned prime_pushx=0,prime_pushy=0,prime_mousex=0,prime_mousey=0,prime_event=0,prime_pushcount=0,prime_movecount=0,prime_releasecount=0;
+int prime_shift=0;
+int prime_alpha=0,prevalpha=0;
+int prime_select=false;
+const int prime_statusline_x=230;
+void statusline(int mode){
+  char msg[16]={0};
+  int bg=exam_bg(); // will be replaced for shift/alpha
+  int fg=SDK_BLACK;
+  if (prime_alpha==1){
+    strcpy(msg,"1alph");
+    bg=G2_ALPHA;
+    fg=SDK_WHITE;
+  }
+  else if (prime_alpha==3){
+    strcpy(msg,"1ALPH");
+    bg=G2_ALPHA;
+    fg=SDK_WHITE;
+  }
+  else if (prime_alpha==4){
+    strcpy(msg,"alock");
+    bg=G2_ALPHA;
+    fg=SDK_BLACK;
+  }
+  else if (prime_alpha==6){
+    strcpy(msg,"ALOCK");
+    bg=G2_ALPHA;
+    fg=SDK_BLACK;
+  }    
+  else if (prime_shift){
+    strcpy(msg,"shift");
+    bg=G2_SHIFT;
+    fg=SDK_WHITE;
+  }
+  else {
+    int i=battery_level(); // g1_bat.level;
+#if 0
+    if (i<=5)
+      strcpy(msg," BAT!");
+    else if (i<=25)
+      strcpy(msg," --- ");
+    else if (i<=50)
+      strcpy(msg," +-- ");
+    else if (i<=75)
+      strcpy(msg," ++- ");
+    else
+      strcpy(msg," +++ ");
+#else
+    if (i==100) i=99;
+    sprintf(msg," %d%s ",i,"%");
+#endif
+  }
+  os_fill_rect(prime_statusline_x,-prime_statusarea,LCD_WIDTH_PX,prime_statusarea,bg);
+  os_draw_string_medium(prime_statusline_x,-prime_statusarea,fg,bg,msg,false);
+  //rgbSetColor(0xff0000);
+  //write_string(190,0," CAS ",false);    
+  display_time();
+  if (mode==0)
+    return;
+  sync_screen();
+}
+
+#ifndef __EMSCRIPTEN__
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/vt.h>
+
+static void switch_to_shell(void){
+  int fd = open("/dev/tty0", O_RDWR);   /* alias vers le VT courant */
+  if (fd < 0) { perror("open tty0"); return; }
+  sdk_end();                   /* SDL_Quit() etc. */
+  system("chvt 2");            /* bascule vers le shell */
+  ioctl(fd, VT_WAITACTIVE, 1); /* bloque jusqu'à ce que tty1 redevienne actif */
+  close(fd);
+  sdk_init();                  /* ré-init SDL propre, on est bien revenu sur tty1 */
+}
+#endif
+
+#define NKEYS 512
+static Uint8 custom_keystate[NKEYS];
+
+#include <stdio.h>
+/* Valeurs de la vraie SDL 1.2 (celles attendues par scan) */
+static int sdl2_to_sdl12(int sym) {
+  fprintf(stdout,"sdl2to12 %i\n",sym);
+  if (sym==1251)
+    return 55; // home
+  if (sym==1250)
+    return 50; // alpha
+  if (sym < 256){
+    switch (sym) {
+    case 43: return 0x3b; // -
+    case 45: return 0x2c; // +
+    case 46: return SDLK_PERIOD; // .
+    case 48: return 0x27; // 0 
+    case 52: return 50; // alpha
+    }
+    return sym;            /* ASCII : backspace, tab, return, esc, espace, chiffres, lettres, delete (127) */
+  }
+  switch (sym) {
+    /* flèches et navigation */
+    case SDLK_UP:       return 273;
+    case SDLK_DOWN:     return 274;
+    case SDLK_RIGHT:    return 275;
+    case SDLK_LEFT:     return 276;
+    case SDLK_INSERT:   return 277;
+    case SDLK_HOME:     return 278;
+    case SDLK_END:      return 279;
+    case SDLK_PAGEUP:   return 280;
+    case SDLK_PAGEDOWN: return 281;
+    /* touches de fonction : F1..F12 = 282..293 */
+    case SDLK_F1:  return 282;  case SDLK_F2:  return 283;
+    case SDLK_F3:  return 284;  case SDLK_F4:  return 285;
+    case SDLK_F5:  return 286;  case SDLK_F6:  return 287;
+    case SDLK_F7:  return 288;  case SDLK_F8:  return 289;
+    case SDLK_F9:  return 290;  case SDLK_F10: return 291;
+    case SDLK_F11: return 292;  case SDLK_F12: return 293;
+    /* modificateurs */
+    case SDLK_RSHIFT: return 303;
+    case SDLK_LSHIFT: return 304;
+    case SDLK_RCTRL:  return 305;
+    case SDLK_LCTRL:  return 306;
+    case SDLK_RALT:   return 307;
+    case SDLK_LALT:   return 308;
+    /* pavé numérique : KP0..KP9 = 256..265 */
+    case SDLK_KP0: return 256; case SDLK_KP1: return 257;
+    case SDLK_KP2: return 258; case SDLK_KP3: return 259;
+    case SDLK_KP4: return 260; case SDLK_KP5: return 261;
+    case SDLK_KP6: return 262; case SDLK_KP7: return 263;
+    case SDLK_KP8: return 264; case SDLK_KP9: return 265;
+    case SDLK_KP_PERIOD:   return 266;
+    case SDLK_KP_DIVIDE:   return 267;
+    case SDLK_KP_MULTIPLY: return 268;
+    case SDLK_KP_MINUS:    return 269;
+    case SDLK_KP_PLUS:     return 270;
+    case SDLK_KP_ENTER:    return 271;
+    case SDLK_KP_EQUALS:   return 272;
+    default: return -1;
+  }
+}
+
+void update_keyboard_state() {
+  memset(custom_keystate,0,NKEYS);
+  SDL_Event event;
+  SDL_PumpEvents();
+  while (SDL_PollEvent(&event)) {
+    if (event.type ==SDL_MOUSEBUTTONDOWN){
+      //printf("push x=%d y=%d count=%d\n",prime_pushx,prime_pushy,prime_pushcount);
+      prime_mousex = prime_pushx = event.button.x/sdl_scale;
+      prime_mousey = prime_pushy = event.button.y/sdl_scale;
+      if (prime_pushy<prime_statusarea && prime_pushx>prime_statusline_x)
+	custom_keystate[prime_shift?KEY_CTRL_RESERVE2:KEY_CTRL_RESERVE1]=1;
+      else if (prime_pushy>=LCD_HEIGHT_PX){
+	// virtual keyboard
+	unsigned char keycode=sdl2_to_sdl12(check_vkeypad_click(prime_mousex,prime_mousey,0,LCD_HEIGHT_PX));
+	if (keycode != SDLK_UNKNOWN) {
+	  printf("virtual scancode down %d\n",keycode);
+	  if (keycode < NKEYS)
+	    custom_keystate[keycode] = 1;
+	}
+      }
+      else ++prime_pushcount;
+      continue;
+    }
+    if (event.type ==SDL_MOUSEMOTION){
+      prime_mousex = event.motion.x/sdl_scale;
+      prime_mousey = event.motion.y/sdl_scale;
+      ++prime_movecount;
+      continue;
+    }
+    if (event.type==SDL_MOUSEBUTTONUP){
+      prime_mousex = event.motion.x/sdl_scale;
+      prime_mousey = event.motion.y/sdl_scale;
+      if (prime_pushy<prime_statusarea && prime_pushx>prime_statusline_x)
+	custom_keystate[prime_shift?KEY_CTRL_RESERVE2:KEY_CTRL_RESERVE1]=0;
+      else if (prime_pushy>=LCD_HEIGHT_PX){
+	// virtual keyboard
+	unsigned char keycode=sdl2_to_sdl12(check_vkeypad_click(prime_mousex,prime_mousey,0,LCD_HEIGHT_PX));
+	if (keycode != SDLK_UNKNOWN) {
+	  printf("virtual scancode up %d\n",keycode);
+	  if (keycode < NKEYS) custom_keystate[keycode] = 0;
+	}
+      }
+      else ++prime_releasecount;
+      continue;
+    }
+    if (event.type == SDL_KEYDOWN) {
+#ifdef __EMSCRIPTEN__
+      Uint8 scancode = sdl2_to_sdl12(event.key.keysym.sym);
+#else
+      Uint8 scancode = event.key.keysym.sym;
+#endif
+      printf("scancode down %d\n",scancode);
+      if (scancode < NKEYS) custom_keystate[scancode] = 1;
+    } else if (event.type == SDL_KEYUP) {
+#ifdef __EMSCRIPTEN__
+      Uint8 scancode = sdl2_to_sdl12(event.key.keysym.sym);
+#else
+      Uint8 scancode = event.key.keysym.sym;
+#endif
+      printf("scancode up %d\n",scancode);
+      if (scancode < NKEYS) custom_keystate[scancode] = 0;
+    }
+  }
+#ifndef __EMSCRIPTEN__
+  if (0 && custom_keystate[0] && custom_keystate[SDLK_s]){
+    switch_to_shell();
+  }
+#endif
+}
+
+int iskeydown(int key) {
+  if (key >= 0 && key < NKEYS) {
+    return custom_keystate[key];
+  }
+  return 0;
+}
+
+int isKeyPressed(int key){
+  SDL_PumpEvents();
+  Uint8 *keystate = SDL_GetKeyState(NULL);
+#if 0
+  for (int j=0;j<SDLK_LAST;++j){
+    if (keystate[j]!=0)
+      printf("iskeydown j=%d %d key=%d\n",j,SDLK_LAST,key);
+  }
+#endif
+  if (key >= 0 && key < SDLK_LAST){
+    return keystate[key]!=0;
+  }
+#if 0
+  SDL_Event event; int raw=-1;
+  while (SDL_PollEvent(&event)) {
+    switch (event.type) {
+      case SDL_KEYDOWN:
+	raw=event.key.keysym.sym;
+	printf("iskeydown poll %d\n",raw);
+	if (key==raw)
+	  return 1;
+    }
+  }
+#endif
+  return 0;
+}
+
+void wait_no_key_pressed(){
+  SDL_PumpEvents();
+  SDL_Event event;
+  while (1){
+    while (SDL_PollEvent(&event)){
+      if (event.type == SDL_QUIT) return;
+    }
+    int numkeys = 0;
+    Uint8 *keystate = SDL_GetKeyState(&numkeys);
+    int pressed = 0;
+    for (int i = 0; i < numkeys; ++i){
+      if (keystate[i]){
+        pressed = 1;
+        break;
+      }
+    }
+    if (!pressed) break;
+    SDL_Delay(10);
+  }
+}
+
+int clear_events(){
+  SDL_Event event;
+  while (sdl_pushed){
+    if (SDL_PollEvent(&event)){
+      printf("clear event %i %i\n", event.type, SDL_MOUSEBUTTONUP);
+      if (event.type==SDL_MOUSEBUTTONUP){
+        sdl_pushed=false;
+        break;
+      }
+    }
+    SDL_Delay(100);
+  }
+  while (SDL_PollEvent(&event)){
+    if (event.type == SDL_QUIT)
+      return 0;
+  }
+  return 1;
+}
+
+int wait_key_released(int T){
+  SDL_Event event;
+  Uint32 start = SDL_GetTicks();
+  while (1){
+    while (SDL_PollEvent(&event)){
+      if (event.type == SDL_QUIT) return 0;
+    }
+    int numkeys = 0;
+    Uint8 *keystate = SDL_GetKeyState(&numkeys);
+    int pressed = 0;
+    for (int i = 0; i < numkeys; ++i){
+      if (keystate[i]){
+        pressed = 1;
+        break;
+      }
+    }
+    if (!pressed) return 1;
+    if (T > 0 && (int)(SDL_GetTicks() - start) >= T) return 0;
+    SDL_Delay(10);
+  }
+}
+
+#define SHIFTALPHA(x, y, z) (prime_alpha ? ((prime_alpha & 2) ? (z) - 0x20 : (z)) : prime_shift ? (y) : (x))
+#define SHIFTCTRL(x, y, z)  (prime_alpha ? (z) : prime_shift ? (y) : (x))
+#define SHIFT(x, y)        SHIFTCTRL(x, y, x)
+#define CTRL(x, y)         SHIFTCTRL(x, x, y)
+#define NORMAL(x)          SHIFTCTRL(x, x, x)
+
+int prime_translate(int k,int arm) {
+  if (k == KEY_MOUSE_PUSH || k == KEY_MOUSE_MOVE) {
+    return k;
+  }
+
+  // --- Touches de direction ---
+  if (k==SDLK_LEFT)  return SHIFT(KEY_CTRL_LEFT, KEY_SHIFT_LEFT);
+  if (k==SDLK_RIGHT) return SHIFT(KEY_CTRL_RIGHT, KEY_SHIFT_RIGHT);
+  if (k==SDLK_UP)    return SHIFT(KEY_CTRL_UP, KEY_CTRL_PAGEUP);
+  if (k==SDLK_DOWN)  return SHIFT(KEY_CTRL_DOWN, KEY_CTRL_PAGEDOWN);
+
+  // --- Touches système & Édition ---
+  if (k==SDLK_RETURN || k==SDLK_KP_ENTER) return SHIFT(KEY_CTRL_EXE, '\n');
+  if (k==SDLK_BACKSPACE)                    return KEY_CTRL_DEL;
+  if (k==SDLK_ESCAPE)                       return SHIFT(KEY_CTRL_EXIT, KEY_CTRL_AC);
+  printf("prime_translate 0x%x arm=%i\n",k,arm);
+  // --- Touches de fonctions supérieures (Row 4 & Row 5 du DTS) ---
+  if (k==0x136 || k==0x137 || k==SDLK_HOME)                         return SHIFT(KEY_CTRL_HOME, KEY_CTRL_SETUP);
+  if (k==SDLK_MENU)                         return SHIFT(KEY_CTRL_MENU, KEY_CTRL_PASTE); 
+  if (k==SDLK_F1)                           return SHIFT(KEY_CTRL_F1, KEY_CTRL_F7);     // Symb
+  if (k==SDLK_F2)                           return SHIFT(KEY_CTRL_F2, KEY_CTRL_F8);     // Plot
+  if (k==SDLK_F3)                           return SHIFT(KEY_CTRL_F3, KEY_CTRL_F9);     // Num
+  if (k==SDLK_TAB)                          return SHIFT('\t', KEY_CTRL_USER);          // Help
+  if (k==SDLK_F5)                           return SHIFT(KEY_CTRL_VIEW, KEY_CTRL_CLIP);  // View
+  if (k==SDLK_F6)                           return SHIFT(KEY_CTRL_F6, KEY_CTRL_F10);    // Menu
+  if (k==SDLK_LCTRL || k==SDLK_RCTRL)     return SHIFT(KEY_CTRL_CAS, KEY_CTRL_F11);   // CAS
+  if (k==0xf9) return '%';
+  if (arm){
+    // --- Pavé alphabétique / Matrice principale ---
+    if (k==SDLK_a) return SHIFTALPHA(KEY_CTRL_VARS, KEY_CTRL_INS, 'a');
+    if (k==SDLK_b) return SHIFTALPHA(KEY_CTRL_CATALOG, 'B', 'b');
+    if (k==SDLK_c) return SHIFTALPHA(KEY_EQW_TEMPLATE, 'C', 'c');
+    if (k==SDLK_d) return SHIFTALPHA('x', 't', 'd');
+    if (k==SDLK_e) return SHIFTALPHA(KEY_CTRL_MIXEDFRAC, 'E', 'e');
+    if (k==SDLK_f) return SHIFTALPHA(KEY_CHAR_POW, KEY_CHAR_POWROOT, 'f');
+    if (k==SDLK_g) return SHIFTALPHA(KEY_CHAR_SIN, KEY_CHAR_ASIN, 'g');
+    if (k==SDLK_h) return SHIFTALPHA(KEY_CHAR_COS, KEY_CHAR_ACOS, 'h');
+    if (k==SDLK_i) return SHIFTALPHA(KEY_CHAR_TAN, KEY_CHAR_ATAN, 'i');
+    if (k==SDLK_j) return SHIFTALPHA(KEY_CHAR_LN, KEY_CHAR_EXPN, 'j');
+    if (k==SDLK_k) return SHIFTALPHA(KEY_CHAR_LOG, KEY_CHAR_EXPN10, 'k');
+    if (k==SDLK_l) return SHIFTALPHA(KEY_CHAR_SQUARE, KEY_CHAR_ROOT, 'l');
+    if (k==SDLK_m) return SHIFTALPHA(KEY_CHAR_LPAR, '|', 'm');
+    if (k==SDLK_n) return SHIFTALPHA(KEY_CHAR_RPAR, '\'', 'n');
+    if (k==SDLK_o) return SHIFTALPHA(',', '\\', 'o');
+    if (k==SDLK_p) return SHIFTALPHA(KEY_CHAR_EXP, KEY_CHAR_STORE, 'p');
+    if (k==SDLK_q || k==SDLK_7) return SHIFTALPHA('7', KEY_CTRL_F13, 'q');
+    // if (k==SDLK_7) return 'q'; 
+    if (k==SDLK_r || k==SDLK_8) return SHIFTALPHA('8', KEY_CHAR_ACCOLADES, 'r');
+    // if (k==SDLK_8) return 'r'; // Reçu si ALPHA + R combinés
+    if (k==SDLK_s || k==SDLK_9) return SHIFTALPHA('9', '!', 's');
+    // if (k==SDLK_9) return 's'; // Reçu si ALPHA + S combinés
+    if (k==SDLK_t) return SHIFTALPHA('/', KEY_CHAR_RECIP, 't');
+    if (k==SDLK_u || k==SDLK_4)     return SHIFTALPHA('4', KEY_CTRL_F7, 'u');
+    if (k==SDLK_v || k==SDLK_5)     return SHIFTALPHA('5', KEY_CHAR_CROCHETS, 'v');
+    if (k==SDLK_w || k==SDLK_6)     return SHIFTALPHA('6', '<', 'w');
+    if (k==SDLK_x || k==SDLK_ASTERISK || k==SDLK_KP_MULTIPLY) return SHIFTALPHA('*', '>', 'x');
+    if (k==SDLK_y || k==SDLK_1)     return SHIFTALPHA('1', KEY_CTRL_PRGM, 'y');
+    if (k==SDLK_z || k==SDLK_2)     return SHIFTALPHA('2', 'i', 'z');
+    if (k==0x2f || k==SDLK_3)     return SHIFTALPHA('3', KEY_CHAR_PI, '#');
+    if (k==0x2c || k==SDLK_MINUS) return SHIFTALPHA('-', KEY_CHAR_PI, ':');
+    if (k==0x27 || k==SDLK_0)     return SHIFTALPHA('0', '\'', '"');
+    if (k==SDLK_PERIOD) return SHIFT('.', '=');
+    if (k==SDLK_SPACE) return SHIFT(' ','_');
+    if (k==0x3b || k==SDLK_PLUS)   return SHIFTALPHA('+', KEY_CHAR_ANS, ';');
+  } else {
+    if (k==0x2c) return SHIFT(',',azerty?'?':'<');
+    if (k==SDLK_a) return SHIFT('a','A');
+    if (k==SDLK_b) return SHIFT('b', 'B');
+    if (k==SDLK_c) return SHIFT('c','C');
+    if (k==SDLK_d) return SHIFT('d','D');
+    if (k==SDLK_e) return SHIFT('e','E');
+    if (k==SDLK_f) return SHIFT('f','F');
+    if (k==SDLK_g) return SHIFT('g','G');
+    if (k==SDLK_h) return SHIFT('h','H');
+    if (k==SDLK_i) return SHIFT('i','I');
+    if (k==SDLK_j) return SHIFT('j','J');
+    if (k==SDLK_k) return SHIFT('k','K');
+    if (k==SDLK_l) return SHIFT('l','L');
+    if (k==SDLK_m) return SHIFT('m','M');
+    if (k==SDLK_n) return SHIFT('n','N');
+    if (k==SDLK_o) return SHIFT('o','O');
+    if (k==SDLK_p) return SHIFT('p','P');
+    if (k==SDLK_q) return SHIFT('q','Q');
+    // if (k==SDLK_7) return 'q'; 
+    if (k==SDLK_r) return SHIFT('r','R');
+    // if (k==SDLK_8) return 'r'; // Reçu si ALPHA + R combinés
+    if (k==SDLK_s) return SHIFT('s','S');
+    // if (k==SDLK_9) return 's'; // Reçu si ALPHA + S combinés
+    if (k==SDLK_t) return SHIFT('t','T');
+    if (k==SDLK_u )     return SHIFT('u','U');
+    if (k==SDLK_v )     return SHIFT('v','V');
+    if (k==SDLK_w )     return SHIFT('w', 'W');
+    if (k==SDLK_x ) return SHIFT('x','X');
+    if (k==SDLK_y)     return SHIFT('y','Y');
+    if (k==SDLK_z)     return SHIFT('z','Z');
+    // azerty kbd
+    if (azerty){
+      if (k==SDLK_AMPERSAND || k=='1')  return SHIFT('&','1');
+      if (k==233 || k=='2')             return SHIFT('~','2'); // é (SDLK_WORLD_0)
+      if (k==SDLK_QUOTEDBL || k=='3')   return SHIFT('"','3');
+      if (k==SDLK_QUOTE || k=='4')      return SHIFT('\'','4');
+      if (k==SDLK_LEFTPAREN || k=='5')  return SHIFT('(','5');
+      if (k==SDLK_MINUS || k=='6')      return SHIFT('-','6');
+      if (k==232 || k=='7')             return SHIFT('`','7'); // è (SDLK_WORLD_1)
+      if (k==SDLK_UNDERSCORE || k=='8') return SHIFT('_','8');
+      if (k==231 || k=='9')             return SHIFT('^','9'); // ç (SDLK_WORLD_2)
+      if (k==224 || k=='0')             return SHIFT('@','0'); // à (SDLK_WORLD_3)    }
+      if (k==0x29)            return SHIFT(')',']'); 
+      if (k==0x3d)            return SHIFT('=','+'); 
+      if (k==0x5e)            return SHIFT('^','['); 
+      if (k==0x24)            return SHIFT('$','{'); 
+      if (k==0x75)            return SHIFT('|','%'); 
+      if (k==0x2a || k==0x21)            return SHIFT('*','^'); 
+      if (k==0x3a)            return SHIFT(':','/'); 
+      if (k==0x3b)   return SHIFT(';','.');
+    }
+    if (k==SDLK_PERIOD) return SHIFT('.', azerty?'=':'>');
+    if (k=='0')  return SHIFT('0',')');
+    if (k=='1')  return SHIFT('1','!');
+    if (k=='2')  return SHIFT('2','@');
+    if (k=='3')  return SHIFT('3','#');
+    if (k=='4')  return SHIFT('4','$');
+    if (k=='5')  return SHIFT('5','%');
+    if (k=='6')  return SHIFT('6','^');
+    if (k=='7')  return SHIFT('7','&');
+    if (k=='8')  return SHIFT('8','*');
+    if (k=='9')  return SHIFT('9','(');
+    if (k==0x5b)  return SHIFT('[','{');
+    if (k==0x5d)  return SHIFT(']','}');
+    if (k=='=')  return SHIFT('=','+');
+    if (k=='/') return SHIFT('/','?');
+    if (k==SDLK_3)     return SHIFTALPHA('3', KEY_CHAR_PI, '#');
+    if (k==0x2c || k==SDLK_MINUS) return SHIFTALPHA('-', KEY_CHAR_PI, ':');
+    if (k==0x27) return SHIFT('\'','"');
+    if (k==SDLK_0)     return SHIFTALPHA('0', '\'', '"');
+    if (k==SDLK_SPACE) return SHIFT(' ','_');
+    if (k==0x3b) return SHIFT(';',':');
+    if (k==0x5c) return SHIFT('\\','|');
+    if (k==SDLK_PLUS)   return SHIFTALPHA('+', KEY_CHAR_ANS, ';');
+  }
+  return 0;
+}
+
+void displaymenu(const char * menu,int menubg){
+  statusline(0);
+  if (!menu){
+    sync_screen();
+    return;
+  }
+  os_fill_rect(0,LCD_HEIGHT_PX-2*prime_statusarea,LCD_WIDTH_PX,prime_statusarea,menubg);
+  os_draw_string(0,LCD_HEIGHT_PX-2*prime_statusarea,0,menubg,menu,false);
+  sync_screen();
+}
+
+
+static void write_sysfs(const char *path, const char *val) {
+  int fd = open(path, O_WRONLY);
+  if (fd >= 0) {
+    write(fd, val, __builtin_strlen(val));
+    close(fd);
+  }
+}
+
+#if 0
+static int dir_exists(const char *path) {
+  struct stat st;
+  return (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+}
+#else
+static int dir_exists(const char *path) {
+  DIR *d = opendir(path);
+  if (d) {
+    closedir(d);
+    return 1;
+  }
+  return 0;
+}
+#endif
+
+#if 1 // add keyboard unbind/bind
+char *find_evdev_by_name(const char *match){
+  FILE *f = fopen("/proc/bus/input/devices", "r");
+  if (!f)
+    return NULL;
+  
+  char line[256];
+  int in_matching_block = 0;
+  char *result = NULL;
+  
+  while (fgets(line, sizeof(line), f)) {
+    if (line[0] == 'N' && strstr(line, "Name=")) {
+      in_matching_block = (strstr(line, match) != NULL);
+    } else if (in_matching_block && line[0] == 'H' && strstr(line, "Handlers=")) {
+      char *p = strstr(line, "event");
+      if (p) {
+        int n = atoi(p + 5);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "/dev/input/event%d", n);
+        result = strdup(buf);
+      }
+      break;
+    } else if (line[0] == '\n') {
+      /* ligne vide = fin du bloc pour ce device */
+      in_matching_block = 0;
+    }
+  }
+  
+  fclose(f);
+  return result;
+}
+
+void SysPowerOff(void) {
+  sdk_end();
+  usleep(100000);
+
+  write_sysfs("/sys/class/firmware/timeout", "1");
+
+  int touch_present = file_exists("/sys/bus/i2c/drivers/Goodix-TS/1-0014");
+  if (touch_present) {
+    write_sysfs("/sys/bus/i2c/drivers/Goodix-TS/unbind", "1-0014");
+    usleep(10000);
+  }
+
+  int kpp_present = file_exists("/sys/bus/platform/drivers/imx-keypad/20b8000.kpp");
+  // kpp_present = 0;
+  if (kpp_present) {
+    write_sysfs("/sys/bus/platform/drivers/imx-keypad/unbind", "20b8000.kpp");
+    usleep(10000);
+  }
+
+  write_sysfs("/sys/power/state", "mem");
+
+  if (kpp_present) {
+    usleep(200000);
+    write_sysfs("/sys/bus/platform/drivers/imx-keypad/bind", "20b8000.kpp");
+  }
+
+  if (dir_exists("/sys/bus/i2c/drivers/Goodix-TS") &&
+      !file_exists("/sys/bus/i2c/drivers/Goodix-TS/1-0014")) {
+    usleep(200000);
+    write_sysfs("/sys/bus/i2c/drivers/Goodix-TS/bind", "1-0014");
+    char *tsdev = find_evdev_by_name("Goodix");
+    if (tsdev) {
+      setenv("TSLIB_TSDEVICE", tsdev, 1);
+      free(tsdev);
+    }    
+  }
+
+  usleep(100000);
+  sdk_init();
+}
+#else
+
+void SysPowerOff(void) {
+  sdk_end();
+  usleep(100000); 
+  //printf("OFF\n"); return;
+  // echo 1 > /sys/class/firmware/timeout
+  write_sysfs("/sys/class/firmware/timeout", "1");
+
+  // if [ -e /sys/bus/i2c/drivers/Goodix-TS/1-0014 ]; then
+  //     echo "1-0014" > /sys/bus/i2c/drivers/Goodix-TS/unbind
+  //     sleep 0.01
+  // fi
+  if (file_exists("/sys/bus/i2c/drivers/Goodix-TS/1-0014")) {
+    write_sysfs("/sys/bus/i2c/drivers/Goodix-TS/unbind", "1-0014");
+    usleep(10000); // 10 ms
+  }
+
+  // echo mem > /sys/power/state (mise en veille suspend-to-RAM)
+  write_sysfs("/sys/power/state", "mem");
+
+  // --- Le processeur reprend ici après le réveil ---
+
+  // if [ -d /sys/bus/i2c/drivers/Goodix-TS ] && [ ! -e /sys/bus/i2c/drivers/Goodix-TS/1-0014 ]; then
+  //     sleep 0.2
+  //     echo "1-0014" > /sys/bus/i2c/drivers/Goodix-TS/bind
+  // fi
+  if (dir_exists("/sys/bus/i2c/drivers/Goodix-TS") && 
+      !file_exists("/sys/bus/i2c/drivers/Goodix-TS/1-0014")) {
+    usleep(200000); // 200 ms
+    write_sysfs("/sys/bus/i2c/drivers/Goodix-TS/bind", "1-0014");
+  }
+  usleep(100000); 
+  sdk_init();
+}
+#endif
+
+#define BRIGHTNESS_PATH "/sys/class/backlight/backlight/brightness"
+#define MAX_BRIGHTNESS_PATH "/sys/class/backlight/backlight/max_brightness"
+
+// Lit un entier depuis un fichier sysfs
+static int read_sysfs_int(const char *path) {
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) return -1;
+  char buf[16] = {0};
+  ssize_t bytes_read = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if (bytes_read <= 0) return -1;
+  return atoi(buf);
+}
+
+// Écrit un entier dans un fichier sysfs
+static int write_sysfs_int(const char *path, int val) {
+  int fd = open(path, O_WRONLY);
+  if (fd < 0) return -1;
+  char buf[16];
+  int len = snprintf(buf, sizeof(buf), "%d\n", val);
+  ssize_t bytes_written = write(fd, buf, len);
+  close(fd);
+  return (bytes_written == len) ? 0 : -1;
+}
+
+// Fonction d'incrémentation du rétroéclairage
+void increase_backlight(int step) {
+  int current=read_sysfs_int(BRIGHTNESS_PATH);
+  if (current<0) {
+    perror("Error brightness path");
+    return;
+  }
+  int max_val=read_sysfs_int(MAX_BRIGHTNESS_PATH);
+  if (max_val<0) 
+    max_val=255; 
+  int next_val=current+step;
+  if (next_val>max_val)
+    next_val=max_val;
+  if (write_sysfs_int(BRIGHTNESS_PATH, next_val) < 0) {
+    perror("Error writing brightness");
+  }
+}
+
+void decrease_backlight(int step) {
+  int current=read_sysfs_int(BRIGHTNESS_PATH);
+  if (current<0) {
+    perror("Error brightness path");
+    return;
+  }
+  int max_val=read_sysfs_int(MAX_BRIGHTNESS_PATH);
+  if (max_val<0) 
+    max_val=255; 
+  int next_val=current-step;
+  if (next_val<1)
+    next_val=1;
+  if (write_sysfs_int(BRIGHTNESS_PATH, next_val) < 0) {
+    perror("Error writing brightness");
+  }
+}
+
+
+int menu_getkey(int allow_suspend, const char *menu, const char *menu_shift, const char *menu_alpha, int menubg) {
+  if (shutdown_state)
+    return KEY_SHUTDOWN;
+  prevalpha = prime_alpha;
+  static int already_pressed = false;
+  static Uint32 last_key_time = 0;
+  displaymenu(prime_shift ? menu_shift : (prime_alpha ? menu_alpha : menu), menubg);
+  for (unsigned count=1;;++count) {
+    if ( (count & 0x3f)==0)
+      statusline(1); // sync time (about 6s., 256*25 ms)
+    SDL_Event event;
+    int raw_k = -1;
+    int arm;
+    // --- Lecture non-bloquante des événements SDL ---
+#ifdef TARGET_ARM
+    arm=1;
+#else
+    arm=0;
+#endif
+    static unsigned last_repeat_time = 0;
+    static unsigned last_push_time = 0;
+    while (SDL_PollEvent(&event)) {
+      switch (event.type) {
+      case SDL_MOUSEBUTTONDOWN:
+	last_push_time = last_repeat_time = SDL_GetTicks();
+        sdl_pushed=true;
+        prime_mousex = prime_pushx = event.button.x/sdl_scale;
+        prime_mousey = prime_pushy = event.button.y/sdl_scale;
+        // printf("push x=%d y=%d\n",prime_pushx,prime_pushy);
+        if (prime_pushy>LCD_HEIGHT_PX-prime_statusarea) // 2*
+          break;
+        return KEY_MOUSE_PUSH;
+      case SDL_MOUSEMOTION:
+	last_repeat_time = SDL_GetTicks();
+        prime_mousex = event.motion.x/sdl_scale;
+        prime_mousey = event.motion.y/sdl_scale;
+        if (sdl_pushed && event.motion.state != 0) { // Clic maintenu + déplacement
+          static Uint32 last_move_time = 0;
+          Uint32 now = SDL_GetTicks();
+          if (now - last_move_time >= 100 && now-last_push_time>500) {
+            // printf("move x=%d y=%d\n", prime_mousex, prime_mousey);
+            last_move_time = now;
+	    if (prime_mousey<LCD_HEIGHT_PX)
+	      return KEY_MOUSE_MOVE;
+            int keycode=check_vkeypad_click(prime_mousex,prime_mousey,0,LCD_HEIGHT_PX);
+            if (keycode != SDLK_UNKNOWN) {
+              raw_k=keycode;
+              arm=1;
+              break;
+            }
+            continue;
+          }
+	  continue;
+          // printf("ignored x=%d y=%d\n", prime_mousex, prime_mousey);
+        }
+        break;
+      case SDL_MOUSEBUTTONUP:
+	last_repeat_time = SDL_GetTicks();
+        prime_mousex = event.motion.x/sdl_scale;
+        prime_mousey = event.motion.y/sdl_scale;
+        sdl_pushed=false;
+        //printf("release x=%d y=%d pushx=%d pushy=%d Fy=%d\n", prime_mousex, prime_mousey,prime_pushx,prime_pushy,LCD_HEIGHT_PX-prime_statusarea);
+        if (prime_pushy<prime_statusarea && prime_pushx>prime_statusline_x)
+          return prime_shift?KEY_CTRL_RESERVE2:KEY_CTRL_RESERVE1;
+        if (prime_pushy>LCD_HEIGHT_PX-prime_statusarea){ // 2*
+#ifndef TARGET_ARM
+          if (prime_pushy>=LCD_HEIGHT_PX){
+            // virtual keyboard
+            int keycode=check_vkeypad_click(prime_mousex,prime_mousey,0,LCD_HEIGHT_PX);
+            if (keycode != SDLK_UNKNOWN) {
+              raw_k=keycode;
+              arm=1;
+              break;
+            }
+            continue;
+          }
+#endif
+          //printf("release x=%d y=%d F%d\n", prime_mousex, prime_mousey,1+(6*prime_mousex)/LCD_WIDTH_PX);
+          // F1-F6 menus
+          if (prime_shift)
+            return KEY_CTRL_F7+(6*prime_mousex)/LCD_WIDTH_PX;
+          if (prime_alpha)
+            return KEY_CTRL_F13+(6*prime_mousex)/LCD_WIDTH_PX;
+          return KEY_CTRL_F1+(6*prime_mousex)/LCD_WIDTH_PX;
+        }
+        return KEY_MOUSE_MOVE;
+      case SDL_KEYDOWN:
+        if (event.key.keysym.sym == 0 && (event.key.keysym.scancode == 330 || event.key.keysym.scancode == 0)) {
+          break; // Évite de polluer raw_k avec le contact tactile
+        }
+        prime_keydown = raw_k = event.key.keysym.sym;
+        printf("SDL raw_k=sym=0x%x (%d), scancode=0x%x (%d)\n", event.key.keysym.sym, event.key.keysym.sym, event.key.keysym.scancode, event.key.keysym.scancode);
+        break;
+      case SDL_QUIT:
+        return KEY_SHUTDOWN;
+      }
+    }
+    // --- Répétition de touche clavier virtuel même sans mouvement de souris ---
+    if (raw_k == -1 && sdl_pushed && prime_pushy >= LCD_HEIGHT_PX ) {
+      Uint32 now = SDL_GetTicks();
+      if (now - last_repeat_time >= 125 && now-last_push_time >= 300 ) {
+        last_repeat_time = now;
+        int keycode = check_vkeypad_click(prime_mousex, prime_mousey, 0, LCD_HEIGHT_PX);
+        if (keycode != SDLK_UNKNOWN) {
+          raw_k = keycode;
+          arm = 1;
+        }
+      }
+    }
+    // Aucun événement touche appuyée en attente
+    if (raw_k == -1) {
+      already_pressed = false;
+      SDL_Delay(25);
+      continue;
+    }
+    
+    // --- Extinction / Veille (Shift + ON/OFF) ---
+    if (allow_suspend && raw_k == 0 && prime_shift) {
+      if (offon_handler)
+        offon_handler(offon_param);
+      SysPowerOff();
+      prime_shift = false;
+      displaymenu(prime_shift ? menu_shift : (prime_alpha ? menu_alpha : menu), menubg);
+      return KEY_CTRL_NOP; // this should force a screen redraw inside app
+    }
+#ifdef TARGET_ARM
+    // attempt to support ON + and ON -
+    if (raw_k==0 && prime_alpha){
+      // decrease backlight
+      if (prime_alpha&2)
+        increase_backlight(1);
+      else
+        decrease_backlight(1);
+    }
+#endif
+    // --- Touche SHIFT ---
+    if (raw_k == SDLK_LSHIFT || raw_k == SDLK_RSHIFT) {
+      if (prime_alpha) {
+        prime_shift = false;
+        prime_alpha ^= 2;
+      } else {
+        prime_shift = !prime_shift;
+      }
+      displaymenu(prime_shift ? menu_shift : (prime_alpha ? menu_alpha : menu), menubg);
+      continue;
+    }
+    // --- Touche ALPHA  ---
+    if (raw_k == 0x132 || raw_k == SDLK_LALT || raw_k == SDLK_CAPSLOCK) {
+      if (prime_alpha & 4)
+        prime_alpha = 0; // Unlocks alpha
+      else if (prime_alpha & 1)
+        prime_alpha = 4; // Locks alpha
+      else
+        prime_alpha = 1; // 1-alpha
+
+      displaymenu(prime_shift ? menu_shift : (prime_alpha ? menu_alpha : menu), menubg);
+      continue;
+    }
+
+    // --- Traduction de la touche et réinitialisation des modificateurs ---
+    int k = prime_translate(raw_k,arm);
+    if (prime_alpha || prime_shift) {
+      prime_shift = false;
+      if ((prime_alpha & 4) == 0) // Alpha non verrouillé
+        prime_alpha = 0;
+      displaymenu(prime_shift ? menu_shift : (prime_alpha ? menu_alpha : menu), menubg);
+    }
+    return k;
+  } // end for(;;)
+}
+
+int getkey(int allow_suspend){
+  return menu_getkey(allow_suspend,0,0,0,0);
+}
+
+void GetKey(int * key){
+  *key=getkey(true);
+}
+
+int handle_f5(){
+  if (prime_alpha&4)
+    prime_alpha ^=2;
+  else
+    prime_alpha |= 4;
+  return 0;
+}
+
+int alphawasactive(int * key){
+#if 1
+  return prevalpha;
+#else // for keyboards without alpha key (like nspire)
+  if (*key==KEY_DOWN_CTRL){
+    *key=KEY_CTRL_DOWN;
+    return true;
+  }
+  if (*key==KEY_UP_CTRL){
+    *key=KEY_CTRL_UP;
+    return true;
+  }
+  if (*key==KEY_LEFT_CTRL){
+    *key=KEY_CTRL_LEFT;
+    return true;
+  }
+  if (*key==KEY_RIGHT_CTRL){
+    *key=KEY_CTRL_RIGHT;
+    return true;
+  }
+  return false;
+#endif
+}
+
+int isalphaactive(){
+  return prime_alpha;
+}
+
+void lock_alpha(){
+  prime_alpha=4;
+}
+
+int GetSetupSetting(int k){
+  if (k!=0x14) return -1;
+  if (!isalphaactive()) return 0;
+  return 4;
+}
+
+void reset_kbd(){
+  prime_alpha=prime_shift=0;
+}
+
+int on_key_enabled=true;
+
+void enable_back_interrupt(){
+  on_key_enabled=true;
+}
+
+void disable_back_interrupt(){
+  on_key_enabled=false;
+}
+
+#endif // HPG2
+
+#if defined FXCG || defined HPG2
+#define LINE_HEIGHT 12 // Hauteur en pixels d'une ligne
+
+#ifdef HPG2
+// Variables globales de couleur pour PrintMini (à adapter selon tes besoins)
+static int g_bgcolor = 0x0; 
+static int g_fgcolor = 0xffff; 
+void rgbSetColor(unsigned c){ g_fgcolor=c;}
+void rgbSetBkColor(unsigned c){ g_bgcolor=c;}
+
+#endif
+
+// Fonction basique pour afficher directement aux coordonnées choisies
+void PrintfXY(int x, int y, const char *format, ...) {
+  char buffer[128];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+#ifdef FXCG
+  int cur_x = x;
+  int cur_y = y;
+  PrintMini(&cur_x, &cur_y, (unsigned char*)buffer, 0x40, 0xFFFFFFFF, 0, 0, g_fgcolor, g_bgcolor, 1, 0);
+#else
+  os_draw_string_medium(x,y-prime_statusarea,g_fgcolor,g_bgcolor,buffer,0);
+#endif
+}
+
+// Fonction Printf séquentielle (conserve xpos et ypos)
+void Printf(const char *format, ...) {
+  static int xpos = 0; // Position horizontale courante
+  static int ypos = 0; // Position verticale courante
+  char buffer[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+  char line_buffer[128];
+  int line_idx = 0;
+  for (int i = 0; buffer[i] != '\0'; i++) {
+    char c = buffer[i];
+    if (c == '\f') {
+      // Affiche ce qui a été accumulé jusqu'ici avant le saut de page
+      if (line_idx > 0) {
+	line_buffer[line_idx] = '\0';
+#ifdef HPG2
+        xpos=os_draw_string_medium(xpos,ypos-prime_statusarea,g_fgcolor,g_bgcolor,line_buffer,0);
+#else
+	PrintMini(&xpos, &ypos, (unsigned char*)line_buffer, 0x40, 0xFFFFFFFF, 0, 0, g_fgcolor, g_bgcolor, 1, 0);
+#endif
+	line_idx = 0;
+      }
+      // Reset affichage sans impacter le plateau
+      xpos = 0;
+      ypos = 0;
+    }
+    else if (c == '\n') {
+      // Affiche la fin du segment de texte sur la ligne actuelle
+      if (line_idx > 0) {
+	line_buffer[line_idx] = '\0';
+#ifdef HPG2
+        xpos=os_draw_string_medium(xpos-prime_statusarea,ypos,g_fgcolor,g_bgcolor,line_buffer,0);
+#else
+	PrintMini(&xpos, &ypos, (unsigned char*)line_buffer, 0x40, 0xFFFFFFFF, 0, 0, g_fgcolor, g_bgcolor, 1, 0);
+#endif
+	line_idx = 0;
+      }
+      // Passage à la ligne suivante
+      xpos = 0;
+      ypos += LINE_HEIGHT;
+    }
+    else {
+      // Accumulation du caractère courant
+      if (line_idx < (int)sizeof(line_buffer) - 1) {
+	line_buffer[line_idx++] = c;
+      }
+    }
+  }
+
+  // Affiche le reste du morceau de texte s'il n'y a pas eu de '\n' à la fin
+  if (line_idx > 0) {
+    line_buffer[line_idx] = '\0';
+    // PrintMini va afficher le morceau et mettre à jour xpos automatiquement !
+#ifdef HPG2
+    xpos=os_draw_string_medium(xpos,ypos-prime_statusarea,g_fgcolor,g_bgcolor,line_buffer,0);
+#else
+    PrintMini(&xpos, &ypos, (unsigned char*)line_buffer, 0x40, 0xFFFFFFFF, 0, 0, g_fgcolor, g_bgcolor, 1, 0);
+#endif
+  }
+}
+#endif // FXCG || HPG2
+
+
+/*
+  ******************
+  *  HP PRIME G1  *
+  ******************
+*/
+#if defined HPG1 && !defined HPG2
+#include <string.h> 
+#include "k_csdk.h"
+#include "muteki.h"
+
+void (*offon_handler)(const void * param)=0;
+const void * offon_param=0;
+volatile unsigned prime_keydown;
+volatile unsigned prime_mousex,prime_mousey,prime_event;
+volatile unsigned prime_keydown=0;
+volatile unsigned prime_pushx=0,prime_pushy=0,prime_mousex=0,prime_mousey=0,prime_event=0;
+int prime_statusarea=18;
+
+unsigned long SetSystemVariable(unsigned short type,unsigned short mode,unsigned long value);
+
+void * ev_threadptr;
+
+unsigned * fb_screen=0;
+
+typedef struct {
+  uint16_t SomeVal;
+  uint16_t x_res;
+  uint16_t y_res;
+  uint16_t pixel_bits;
+  uint16_t bytes_per_line;
+  uint16_t brightness_level;
+  uint32_t unk1_0;
+  uint32_t window1_bufferstart;
+} LCD_MAGIC;
+
+#define SWI_GET_LCD             0x1008D
+
+#define NAKED_SWI(code)				\
+  __asm volatile (				\
+        "push {r0}\n\t" \
+        "push {lr}\n\t" \
+        "swi %0\n\t" \
+        :: "i" (code) \
+    )
+
+LCD_MAGIC** __attribute__((target("arm"), naked)) sys_get_lcd(void) { NAKED_SWI(SWI_GET_LCD); }
+
+int get_fb(){
+  LCD_MAGIC** ppLcd = sys_get_lcd();
+  if (!ppLcd)
+    return 1;
+  //int screen_w = (*ppLcd)->x_res;
+  fb_screen = (unsigned *)(*ppLcd)->window1_bufferstart;
+  if (!fb_screen)
+    return 2;
+  ClearScreen(0);
+  // vGL_putString(0,0,"INIT",0xffffff,0,16); loopsleep(2000);
+  return 0;
+}
+
+int sdk_init(){
+  ev_threadptr=OSCreateThread(event_manager,0 /* pointer passed to event_manager*/,0 /* system default stack size*/,0 /* run immediatly*/);
+  int res=get_fb();
+  return res;
+}
+
+int sdk_end(){
+  OSTerminateThread((thread_t*) ev_threadptr,0);
+  return 0;
+}
+
+
+unsigned getbrightness(){
+  devio_descriptor_t * backlight_ptr=CreateFile( "\\\\?\\BACK", 3, 0, NULL, 3, 0, NULL );
+  if (!backlight_ptr) return 128;
+  unsigned u=SetSystemVariable(6, (unsigned short)-1 /*GET*/, 0 );
+  CloseHandle(backlight_ptr);
+  return u;
+}
+
+short setbrightness(short level){
+  devio_descriptor_t * backlight_ptr=CreateFile( "\\\\?\\BACK", 3, 0, NULL, 3, 0, NULL );
+  if (!backlight_ptr) return -1;
+  unsigned m;
+  DeviceIoControl(backlight_ptr, 265 /*BLDEV_IO_GETMAXLEVEL*/, NULL, 0, &m, 4, NULL, NULL); // max level
+  if (level<=(int)m)
+    level=SetSystemVariable(6, (unsigned short) 2 /* SET*/,level);
+  CloseHandle(backlight_ptr);
+  return level;
+}
+
+typedef short (*usb_cb_t)(unsigned short , unsigned short);
+void USBMassStorageRun(usb_cb_t usb_cb,unsigned short u);
+short usb_cb(unsigned short u, unsigned short v){
+  return 0;
+}
+
+int event_manager(void * p){
+  ClearAllEvents();
+  prime_keydown=0;prime_mousex=0,prime_mousey=0,prime_event=0;
+  ui_event_t e;
+  for (int i=0;;++i){
+    if (GetEvent(&e)){
+      unsigned * ptr=(unsigned *) &e;
+      prime_event=ptr[7];
+      // ui_event_prime_s in include/ui/common.h
+      // ptr[0]==destinataire, ignored
+      if (prime_event==0x10){
+	if (p)
+	  Printf("keydown: %i 0 %x %x %x %x %x %x %x %x\n",i,ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7],ptr[8]);
+	prime_keydown=ptr[8]>>16;
+	OSSleep(30);
+      }
+      else if (prime_event==0x100000){
+	// if (p) Printf("\fkeyup: %i 0 %x %x %x %x %x %x %x %x\n",i,ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7],ptr[8]);
+	//if (1){ Printf("\fkeyup: %x\n",ptr[8]>>16); loopsleep(200); }
+	if (prime_keydown==0x83){
+	  rgbSetColor(0xff0000);  rgbSetBkColor(0);  Printf("\f  *** ON pressed *** "); // loopsleep(200);
+	  sdk_ctrl_c=1;
+	}
+	prime_keydown=0;
+	OSSleep(10);
+      }
+      else if (prime_event==0x1){
+	prime_pushx=prime_mousex=ptr[8]>>16;
+	prime_pushy=prime_mousey=ptr[9];
+	if (prime_mousey>=220)
+	  prime_keydown=KEY_CTRL_F1+prime_mousex/54;
+	else
+	  prime_keydown=KEY_MOUSE_PUSH;
+	if (p) Printf("touchpush: %i pos=%i,%i 0 %x %x %x %x %x %x %x %x %x %x\n",i,prime_mousex,prime_mousey,ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7],ptr[8],ptr[9],ptr[10]);
+	OSSleep(30);
+      }
+      else if (prime_event==0x2){
+	prime_mousex=ptr[8]>>16;
+	prime_mousey=ptr[9];
+	if (p) Printf("touchmove: %i pos=%i,%i 0 %x %x %x %x %x %x %x %x %x %x\n",i,prime_mousex,prime_mousey,ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7],ptr[8],ptr[9],ptr[10]);
+	if (prime_keydown<KEY_CTRL_F1 || prime_keydown>KEY_CTRL_F6)
+	  prime_keydown=KEY_MOUSE_MOVE;
+      }
+      else if (prime_event==0x8){
+	prime_mousex=ptr[8]>>16;
+	prime_mousey=ptr[9];
+	prime_keydown=0;
+	if (p) Printf("touchup: %i pos=%i,%i 0 %x %x %x %x %x %x %x %x %x %x\n",i,prime_mousex,prime_mousey,ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7],ptr[8],ptr[9],ptr[10]);
+      }
+      else {
+	if (ptr[1]==0x4000 ){
+	  // Printf("Battery status\n");
+	  // battery status
+	}
+	else if (ptr[1]==0x100){
+	  if (ptr[2]==0x24){
+	    // Printf("Disable Com\n");
+	  }
+	  else if (ptr[2]==0x2d){
+	    // Printf("Enable Com\n");
+	    loopsleep(500);
+	    os_fill_rect(10,80,300,80,0);
+	    os_draw_string(20,95,0x1f,0,"Prime storage as PC USB key?",false);
+	    os_draw_string(20,115,0x1f,0,"Press Enter to run",false);
+	    os_draw_string(20,135,0xffff,0,"Any other key to cancel",false);
+	    for (;;){
+	      if (GetEvent(&e))
+		break;
+	    }
+	    //Printf("\f%x %x %x\n",ptr[1],ptr[7],ptr[8]>>16);
+	    if (ptr[1]==0x4000 ){
+	      for (;;){
+		if (GetEvent(&e))
+		  break;
+	      }
+	    }
+	    prime_event=ptr[7];
+	    //Printf("%x %x %x\n",ptr[1],prime_event,ptr[8]>>16);
+	    if (prime_event==0x10){
+	      os_draw_string(20,115,0x1f<<11,0,"Now release the key",false);
+	      os_draw_string(20,135,0xffff,0,"                       ",false);
+	      for (;;){
+		if (GetEvent(&e))
+		  break;
+	      }
+	      ptr=(unsigned *) &e;
+	      prime_event=ptr[7];
+	      prime_keydown=ptr[8]>>16;
+	      //Printf("%x %x %x\n",ptr[1],prime_event,prime_keydown);
+	    }
+	    if (prime_event==0x100000 && prime_keydown==KEY_ENTER){
+	      os_fill_rect(10,80,300,80,0);
+	      os_draw_string(20,95,0xffff,0,"Prime storage as PC USB key",false);
+	      os_draw_string(20,115,0xffff,0,"Eject key on PC to end exchange",false);
+	      os_draw_string(20,135,0xffff,0,"Then disconnect the Prime",false);
+	      USBMassStorageRun(usb_cb,false);
+	      os_fill_rect(10,80,300,80,0);
+	      os_draw_string(20,120,0xffff,0,"USB ended",false);
+	    }
+	    else {
+	      os_fill_rect(10,80,300,80,0);
+	      os_draw_string(20,120,0xffff,0,"USB cancelled",false);
+	    }
+	    prime_keydown=0;
+	  }
+	  else if (1|| p){
+	    Printf("other: %x %x %x %x %x %x %x %x\n",ptr[0],ptr[1],ptr[2],ptr[3],ptr[4],ptr[5],ptr[6],ptr[7]);
+	    Printf("   %x %x %x %x %x %x %x %x\n",ptr[8],ptr[9],ptr[10],ptr[11],ptr[12],ptr[13],ptr[14],ptr[15]);
+	  }
+	}
+      }
+    }
+  }  
+}
+
+int waitforvblank(){
+  return 0;
+}
+
+int back_key_pressed(){
+  return prime_keydown==KEY_ESC;
+}
+// next 3 functions may be void if not inside a window class hierarchy
+void os_show_graph(){} // show graph inside Python shell (Numworks), not used
+void os_hide_graph(){} // hide graph, not used anymore
+void os_redraw(){} // force redraw of window class hierarchy
+
+int os_set_angle_unit(int mode){
+  return false;
+}
+int os_get_angle_unit(){
+  return 0;
+}
+
+double millis(){ // increasing time value
+  datetime_t dt;
+  GetSysTime(&dt);
+  return ((dt.hour*60.+dt.minute)*60+dt.second)*1000.+dt.millis;
+}
+
+
+void get_hms(int *h,int *m,int *s){
+  datetime_t dt;
+  GetSysTime(&dt);
+  *h=dt.hour;
+  *m=dt.minute;
+  *s=dt.second;
+}
+
+void get_time(int *h,int *m){
+  int s;
+  get_hms(h,m,&s);
+}
+
+void set_time(int h,int m){
+  // FIXME
+  datetime_t dt;
+  GetSysTime(&dt);
+  dt.hour=h;
+  dt.minute=m;
+  SetSysTime(&dt);
+}
+
+void ck_msleep(int ms){
+  OSSleep(ms);
+  // loopsleep(ms);
+}
+
+void os_wait_1ms(int ms){
+#if 1
+  OSSleep(ms);
+#else
+  ck_msleep(ms);
+#endif
+}
+
+int file_exists(const char * filename){
+  char buf[256]="c:\\xcas\\";
+  strcat(buf,filename);
+  //rgbSetColor(0xff0000); Printf("file_exist %s\n",buf); OSSleep(2000);
+  file_descriptor_t * f = _afopen(buf,"rb");
+  if (!f)
+    return 0;
+  _fclose(f);
+  return 1;
+}
+
+int erase_file(const char * filename){
+  char buf[256]="c:\\xcas\\";
+  strcat(buf,filename);
+  return _aremove(buf);
+}
+
+char hpg1_filebuf[HPG1_FILEBUFFER];
+int _feof(file_descriptor_t *);
+int _fgetc(file_descriptor_t *);
+int _fputc(int,file_descriptor_t *);
+
+const char * read_file_size(const char * filename,unsigned * sizeptr){
+  if (sizeptr) *sizeptr=0;
+  if (exam_mode &&
+      (strcmp(filename,"session.xw")!=0 &&
+       strcmp(filename,"session.xw.tns")!=0 &&
+       strcmp(filename,"session.py")!=0 &&
+       strcmp(filename,"session.py.tns")!=0 
+       )
+      )
+    return 0;
+  char buf[256]="c:\\xcas\\";
+  strcat(buf,filename);
+  file_descriptor_t * f = _afopen(buf,"rb");
+  if (!f) return 0;
+  __fseek(f,0L,SEEK_END);
+  unsigned s = _ftell(f);
+  __fseek(f,0L,SEEK_SET);
+  //rgbSetColor(0xff0000); Printf("_afopen rb %s %i\n",buf,s); OSSleep(2000);
+  if (s>HPG1_FILEBUFFER-1){
+    _fclose(f);    
+    return 0;
+  }
+#if 1
+  int lus=_fread(hpg1_filebuf,1,s,f);
+  hpg1_filebuf[s]=0;
+  _fclose(f);
+  if (lus==s && sizeptr)
+    *sizeptr=s;
+  return lus!=s?0:hpg1_filebuf;
+#else
+  for (int i=0;i<s;++i){
+    if (_feof(f))
+      break;
+    hpg1_filebuf[i]=_fgetc(f);
+  }
+  hpg1_filebuf[s]=0;
+  _fclose(f);
+  return hpg1_filebuf;
+#endif
+}
+
+const char * read_file(const char * filename){
+  unsigned s;
+  return read_file_size(filename,&s);
+}
+
+int write_file(const char * filename,const char * s,int len){
+  if (exam_mode &&
+      (strcmp(filename,"session.xw")!=0 &&
+       strcmp(filename,"session.xw.tns")!=0 &&
+       strcmp(filename,"session.py")!=0 &&
+       strcmp(filename,"session.py.tns")!=0 
+       )
+      )
+    return false;
+  char buf[256]="c:\\xcas\\";
+  strcat(buf,filename);
+  // if (1) {rgbSetColor(0xff0000); rgbSetBkColor(0); Printf("_afopen w %s %i\n",buf,len); OSSleep(2000);}
+  file_descriptor_t * f=_afopen(buf,"wb+");
+  if (!f) return false;
+  if (!len) len=strlen(s);
+  for (int i=0;i<len;++i)
+    _fputc(s[i],f);
+  _fclose(f);
+  return true;
+}
+
+#define FILENAME_MAXRECORDS 64
+#define FILENAME_MAXSIZE 16
+char os_filenames[FILENAME_MAXRECORDS][FILENAME_MAXSIZE];
+int c_trialpha(const void *p1,const void * p2){
+  int i=strcmp(* (char * const *) p1, * (char * const *) p2);
+  return i;
+}
+
+char minuscule(char c){
+  if (c>='a' && c<='z')
+    return c-0x20;
+  return c;
+}
+
+int my_strcmp(const char *s1, const char *s2) {
+  while (*s1 && minuscule(*s1) == minuscule(*s2)) {
+    s1++;
+    s2++;
+  }
+  return minuscule(*s1) - minuscule(*s2);
+}
+
+int os_file_browser(const char ** filenames,int maxrecords,const char * extension,int storage){ // storage is ignored on hpg1
+  find_context_t ctx;
+  char motif[256]="c:\\xcas\\*.*";
+  short s=_afindfirst(motif,&ctx,0);
+  if (s==-1){
+    filenames[0]=0;
+    return 0;
+  }
+  int cur=0;
+  while (1){
+    const char * s_=ctx.filename,*ext=0;
+    int l=strlen(s_),j;
+    char s[l+1];
+    strcpy(s,s_);
+    for (j=l-1;j>0;--j){
+      if (s[j]=='.'){
+	ext=s+j+1;
+	break;
+      }
+    }
+    //Printf("find ext=%s f=%s\n",ext,s_); OSSleep(2000);
+    if (ext && my_strcmp(ext,"tns")==0){
+      s[j]=0;
+      for (;j>0;--j){
+	if (s[j]=='.'){
+	  ext=s+j+1;
+	  break;
+	}
+      }
+    }
+    if (ext && my_strcmp(ext,extension)==0){
+      if (exam_mode &&
+	  (my_strcmp(s_,"session.xw")!=0 &&
+	   my_strcmp(s_,"session.xw.tns")!=0 &&
+	   my_strcmp(s_,"session.py")!=0 &&
+	   my_strcmp(s_,"session.py.tns")!=0 
+	   )
+	  )
+	continue;
+      //Printf("find ext=%s f=%s\n",ext,s_); OSSleep(2000);
+      strncpy(os_filenames[cur],s_,FILENAME_MAXSIZE);
+      filenames[cur]=os_filenames[cur];
+      ++cur;
+    }
+    if (_afindnext(&ctx)!=0)
+      break;
+  }
+  _findclose (&ctx);
+  filenames[cur]=NULL;
+#if 1
+  qsort(filenames,cur,sizeof(char *),c_trialpha);
+#else
+  // qsort would be faster for large n, but here n<FILENAME_MAXRECORDS
+  for (;;){
+    int finished=true;
+    for (int i=1;i<cur;++i){
+      if (strcmp(filenames[i-1],filenames[i])>0){
+	finished=false;
+	const char * tmp=filenames[i-1];
+	filenames[i-1]=filenames[i];
+	filenames[i]=tmp;
+      }
+    }
+    if (finished)
+      break;
+  }
+#endif
+  return cur;
+}
+
+int c_rgb565to888(int c){
+  c &= 0xffff;
+  int r=(c>>11)&0x1f,g=(c>>5)&0x3f,b=c&0x1f;
+  return (r<<19)|(g<<10)|(b<<3);
+}
+
+int c_rgb888to565(int c){
+  c &= 0xffffff;
+  int r=(c>>19),g=((c>>8)&0xff)>>2,b=(c&0xff)>>3;
+  return (r<<11)|(g<<5)|(b);
+}
+
+void os_set_pixel(int x,int y,int c){
+  if (x>=0 && x<LCD_WIDTH_PX && y>=-prime_statusarea && y<LCD_HEIGHT_PX-prime_statusarea){
+    rgbSetColor(c_rgb565to888(c));
+    FillRect(x,y+prime_statusarea,x,y+prime_statusarea,0);
+  }
+}
+
+void os_fill_rect(int x,int y,int w,int h,int c){
+  y += prime_statusarea;
+  if (x<0){ w+=x; x=0;}
+  if (x+w>=LCD_WIDTH_PX){w=LCD_WIDTH_PX-x;}
+  if (y<0){ h+=y; y=0;}
+  if (y+h>=LCD_HEIGHT_PX){h=LCD_HEIGHT_PX-y;}
+  if (w>0 && h>0){
+    rgbSetColor(c_rgb565to888(c));
+    FillRect(x,y,x+w-1,y+h-1,0);
+  }
+}
+
+int os_get_pixel(int x,int y){
+  if (x<0 || x>=LCD_WIDTH_PX || y<0 || y>=LCD_HEIGHT_PX)
+    return -1;
+  return c_rgb888to565(GetPixel(x,y));
+}
+
+int write_string(int x,int y,const char * s,int fake){
+  if (!s) return x;
+  if (fake){
+    return x+8*strlen(s);
+  }
+  for (int i=0;;++i){
+    unsigned char c=s[i];
+    if (c==0 || x>=LCD_WIDTH_PX)
+      break;
+    if (x<0 || c>=0x80 || c<0x20) // avoid crash (missing char in besta font)!
+      x+=8;
+    else
+      x=WriteChar(x,y,c,0);
+  }
+  return x;
+}
+
+int os_draw_string(int x,int y,int c,int bg,const char * s,int fake){
+#if 0
+  if (fake)
+    return x+strlen(s)*8;
+  return vGL_putString(x,y+prime_statusarea,s,c_rgb565to888(c),c_rgb565to888(bg),16);
+#endif
+  // old code
+  rgbSetColor(c_rgb565to888(c));
+  rgbSetBkColor(c_rgb565to888(bg));
+  //Printf("FontType %x\n",GetFontType());
+  // SetFontType(10); // 0, 4, 8
+  return write_string(x,y+prime_statusarea,s,fake); //??
+}
+
+int os_draw_string_medium(int x,int y,int c,int bg,const char * s,int fake){
+#if 0
+  if (fake)
+    return x+strlen(s)*7;
+  return vGL_putString(x,y+prime_statusarea,s,c_rgb565to888(c),c_rgb565to888(bg),14);
+#endif
+  rgbSetColor(c_rgb565to888(c));
+  rgbSetBkColor(c_rgb565to888(bg));
+  // SetFontType(4); // 0, 4, 8
+  return write_string(x,y+prime_statusarea,s,fake?0x40:0); //??
+}
+
+int os_draw_string_small(int x,int y,int c,int bg,const char * s,int fake){
+  if (fake)
+    return x+strlen(s)*6;
+  return vGL_putString(x,y+prime_statusarea,s,c_rgb565to888(c),c_rgb565to888(bg),12);
+  rgbSetColor(c_rgb565to888(c));
+  rgbSetBkColor(c_rgb565to888(bg));
+  // SetFontType(0); // 0, 4, 8
+  return write_string(x,y+prime_statusarea,s,fake?0x40:0); //??
+}
+
+const int statuscolor=COLOR_CYAN;
+void statuslinemsg(const char * msg){
+  rgbSetColor(c_rgb565to888(statuscolor));
+  FillRect(0,0,230,prime_statusarea,0);
+  os_draw_string(0,-prime_statusarea,SDK_BLACK,statuscolor,msg,false);
+}
+
+void display_time(){
+  int h,m,s;
+  get_hms(&h,&m,&s);
+  char msg[10];
+  msg[0]=' ';
+  msg[1]='0'+(h/10);
+  msg[2]='0'+(h%10);
+  msg[3]= 'h';
+  msg[4]= ('0'+(m/10));
+  msg[5]= ('0'+(m%10));
+  msg[6]=0;
+  //msg[6]= 'm';
+  //msg[7] = ('0'+(s/10));
+  //msg[8] = ('0'+(s%10));
+  //msg[9]=0;
+  int bg=exam_bg();
+  rgbSetColor(c_rgb565to888(bg));
+  FillRect(270,0,LCD_WIDTH_PX,prime_statusarea,0);
+  rgbSetColor(0);
+  write_string(270,0,msg,false);
+}
+
+void sync_screen(){
+}
+
+int prime_shift=0;
+int prime_alpha=0,prevalpha=0;
+int prime_select=false;
+void statusline(int mode){
+  char *msg=0;
+  if (prime_alpha==1)
+    msg="1alpha";
+  else if (prime_alpha==3)
+    msg="1ALPHA";
+  else if (prime_alpha==4)
+    msg="alock";
+  else if (prime_alpha==6)
+    msg="ALOCK";  
+  else if (prime_shift)
+      msg="shift";
+  else {
+    power_battery_status_t g1_bat={0};
+    GetBatteryValue(0,&g1_bat);
+    int i=g1_bat.level;
+    if (i<=1)
+      msg=" --- ";
+    else if (i==2)
+      msg=" +-- ";
+    else if (i==3)
+      msg=" ++- ";
+    else
+      msg=" +++ ";
+  }
+  int bg=exam_bg();
+  rgbSetColor(c_rgb565to888(bg));
+  FillRect(230,0,LCD_WIDTH_PX,prime_statusarea,0);
+  rgbSetColor(0);
+  rgbSetBkColor(c_rgb565to888(bg));
+  write_string(230,0,msg,false);
+  //rgbSetColor(0xff0000);
+  //write_string(190,0," CAS ",false);    
+  display_time();
+  if (mode==0)
+    return;
+  sync_screen();
+}
+
+int isKeyPressed(int key){
+  return prime_keydown==key;
+}
+
+#define SHIFTALPHA(x, y, z) (prime_alpha ? ((prime_alpha&2)?z-0x20:z) : prime_shift ? (y) : (x))
+#define SHIFTCTRL(x, y, z) (prime_alpha ? (z) : prime_shift ? (y) : (x))
+#define SHIFT(x, y) SHIFTCTRL(x, y, x)
+#define CTRL(x, y) SHIFTCTRL(x, x, y)
+#define NORMAL(x) SHIFTCTRL(x, x, x)
+
+int prime_translate(int k){
+  if (k==KEY_MOUSE_PUSH || k==KEY_MOUSE_MOVE){
+    // Printf("\f\nmouse\n"); OSSleep(1000);
+    return k;
+  }
+  if (k>=KEY_CTRL_F1 && k<=KEY_CTRL_F6){
+    if (prime_shift)
+      return k+(KEY_CTRL_F7-KEY_CTRL_F1);
+    else if (prime_alpha)
+      return k+(KEY_CTRL_F13-KEY_CTRL_F1);
+    else return k;
+  }
+#if 1
+  if (k==KEY_LEFT)
+    return SHIFT(KEY_CTRL_LEFT,KEY_SHIFT_LEFT);
+  if (k==KEY_RIGHT)
+    return SHIFT(KEY_CTRL_RIGHT,KEY_SHIFT_RIGHT);
+  if (k==KEY_UP)
+    return SHIFT(KEY_CTRL_UP,KEY_CTRL_PAGEUP);
+  if (k==KEY_DOWN)
+    return SHIFT(KEY_CTRL_DOWN,KEY_CTRL_PAGEDOWN);
+#else
+  if (k==KEY_LEFT)
+    return SHIFTCTRL(KEY_CTRL_LEFT,KEY_SHIFT_LEFT,KEY_LEFT_CTRL);
+  if (k==KEY_RIGHT)
+    return SHIFTCTRL(KEY_CTRL_RIGHT,KEY_SHIFT_RIGHT,KEY_RIGHT_CTRL);
+  if (k==KEY_UP)
+    return SHIFTCTRL(KEY_CTRL_UP,KEY_CTRL_PAGEUP,KEY_UP_CTRL);
+  if (k==KEY_DOWN)
+    return SHIFTCTRL(KEY_CTRL_DOWN,KEY_CTRL_PAGEDOWN,KEY_DOWN_CTRL);
+#endif
+  if (k==13) return SHIFT(KEY_CTRL_EXE,'\n');
+  if (k==12) return KEY_CTRL_DEL ;   
+  if (k==177) return KEY_SHIFT_ANS ;   
+  if (k==57415) return SHIFT(KEY_CTRL_HOME,KEY_CTRL_SETUP) ;
+  if (k==145) return SHIFT(KEY_CTRL_F1,KEY_CTRL_F7); // KEY_CTRL_SYMB ;   
+  if (k==178) return SHIFT(KEY_CTRL_F3,KEY_CTRL_F8); // KEY_CTRL_PLOT ;   
+  if (k==179) return SHIFT(KEY_CTRL_F11,KEY_CTRL_F9); // KEY_CTRL_NUM ;   
+  if (k==149) return SHIFT('\t',KEY_CTRL_USER); // KEY_CTRL_HELP ;   
+  if (k==180) return SHIFT(KEY_CTRL_VIEW,KEY_CTRL_CLIP); // KEY_CTRL_VIEW or F16
+  if (k==KEY_PRIME_MENU) return SHIFT(KEY_CTRL_MENU,KEY_CTRL_PASTE) ;
+  if (k==KEY_ESC) return SHIFT(KEY_CTRL_EXIT,KEY_CTRL_AC) ;
+  if (k==181) return SHIFT(KEY_CTRL_CAS,KEY_CTRL_F10); // KEY_CTRL_CAS ;  
+  if (k==KEY_A) return SHIFTALPHA(KEY_CTRL_VARS,KEY_CTRL_INS,'a') ;
+  if (k==KEY_B) return SHIFTALPHA(KEY_CTRL_CATALOG,'B','b') ;
+  if (k==KEY_C) return SHIFTALPHA(KEY_EQW_TEMPLATE,'C','c') ;
+  if (k==KEY_D) return SHIFTALPHA('x','t','d') ;
+  if (k==KEY_E) return SHIFTALPHA(KEY_CTRL_MIXEDFRAC,'E','e') ;
+  if (k==KEY_F) return SHIFTALPHA(KEY_CHAR_POW,KEY_CHAR_POWROOT,'f') ;
+  if (k==KEY_G) return SHIFTALPHA(KEY_CHAR_SIN,KEY_CHAR_ASIN,'g') ;
+  if (k==KEY_H) return SHIFTALPHA(KEY_CHAR_COS,KEY_CHAR_ACOS,'h') ;
+  if (k==KEY_I) return SHIFTALPHA(KEY_CHAR_TAN,KEY_CHAR_ATAN,'i') ;
+  if (k==KEY_J) return SHIFTALPHA(KEY_CHAR_LN,KEY_CHAR_EXPN,'j') ;
+  if (k==KEY_K) return SHIFTALPHA(KEY_CHAR_LOG,KEY_CHAR_EXPN10,'k') ;
+  if (k==KEY_L) return SHIFTALPHA(KEY_CHAR_SQUARE,KEY_CHAR_ROOT,'l') ;
+  if (k==KEY_M) return SHIFTALPHA(KEY_CHAR_LPAR,'|','m') ;
+  if (k==KEY_N) return SHIFTALPHA(KEY_CHAR_RPAR,'\'','n') ;
+  if (k==KEY_O) return SHIFTALPHA(',','\\','o') ;
+  if (k==KEY_P) return SHIFTALPHA(KEY_CHAR_EXP,KEY_CHAR_STORE,'p') ;
+  if (k==KEY_Q) return SHIFTALPHA('7',KEY_CTRL_F13,'q') ;
+  if (k==KEY_R) return SHIFTALPHA('8',KEY_CHAR_ACCOLADES,'r') ;
+  if (k==KEY_S) return SHIFTALPHA('9','!','s') ;
+  if (k==KEY_T) return SHIFTALPHA('/',KEY_CHAR_RECIP,'t') ;
+  if (k==KEY_U) return SHIFTALPHA('4',KEY_CTRL_F7,'u') ;
+  if (k==KEY_V) return SHIFTALPHA('5',KEY_CHAR_CROCHETS,'v') ;
+  if (k==KEY_W) return SHIFTALPHA('6','<','w') ;
+  if (k==KEY_X) return SHIFTALPHA('*','>','x') ;
+  if (k==KEY_Y) return SHIFTALPHA('1',KEY_CTRL_PRGM,'y') ;
+  if (k==KEY_Z) return SHIFTALPHA('2','i','z') ;
+  if (k=='3') return SHIFTALPHA('3',KEY_CHAR_PI,'#') ;
+  if (k==183) return SHIFTALPHA('-',KEY_CHAR_PI,':') ;
+  if (k=='0') return SHIFTALPHA('0','\'','"') ;
+  if (k==184) return SHIFT('.','=') ;
+  if (k==' ') return SHIFT(' ','_') ;
+  if (k==185) return SHIFTALPHA('+',KEY_CHAR_ANS,';') ;  
+  if (k==0x83) return SHIFT(KEY_CTRL_AC,KEY_PRGM_ACON) ;   // KEY_SHUTDOWN?
+  return 0; // k;
+}
+
+int nspire_scan(int * adaptive_cursor_state){
+  if (isKeyPressed(KEY_PRIME_ALPHA)){
+    while (isKeyPressed(KEY_PRIME_ALPHA))
+      OSSleep(25);
+    prime_alpha=!prime_alpha;
+    prime_shift=0;
+    statusline(1);
+    return -2;
+  }
+  if (isKeyPressed(KEY_SHIFT)){
+    while (isKeyPressed(KEY_SHIFT))
+      ;
+    prime_shift=!prime_shift;
+    prime_alpha=0;
+    statusline(1);
+    return -1;
+  }
+  *adaptive_cursor_state = SHIFTCTRL(0, 1, 4);
+  return prime_translate(prime_keydown);
+}
+
+int handle_f5(){
+  if (prime_alpha&4)
+    prime_alpha ^=2;
+  else
+    prime_alpha |= 4;
+  return 0;
+}
+int iskeydown(int key){
+  return prime_keydown==key;
+}
+
+int ascii_get(int* adaptive_cursor_state){
+  int res=nspire_scan(adaptive_cursor_state);;
+  return res;
+}
+
+void wait_no_key_pressed(){
+  while (1){
+    DMB;
+    if (prime_keydown==0)
+      break;
+    OSSleep(25);
+  }
+}
+
+int wait_key_released(int T){
+  for (int t=0;t<T;t+=25){
+    DMB;
+    if (prime_keydown==0)
+      return 1;
+    OSSleep(25);
+  }
+  return 0;
+}
+
+void displaymenu(const char * menu,int menubg){
+  statusline(0);
+  if (!menu) return;
+  os_fill_rect(0,LCD_HEIGHT_PX-2*prime_statusarea,LCD_WIDTH_PX,prime_statusarea,menubg);
+  os_draw_string(0,LCD_HEIGHT_PX-2*prime_statusarea,0,menubg,menu,false);
+}
+
+#if 1
+int menu_getkey(int allow_suspend,const char * menu,const char * menu_shift,const char * menu_alpha,int menubg){
+  if (shutdown_state)
+    return KEY_SHUTDOWN;
+  prevalpha=prime_alpha;
+  static bool already_pressed=false;
+  displaymenu(prime_shift?menu_shift:(prime_alpha?menu_alpha:menu),menubg);
+  for (;;){
+    DMB; // data memory barrier
+    int k=prime_keydown;
+    if (k==0){
+      OSSleep(25);
+      continue;
+    }
+    if (k==KEY_MOUSE_PUSH)
+      return k;
+    if (k==KEY_MOUSE_MOVE){
+      OSSleep(100);
+      return k;
+    }
+    else if (k==KEY_LEFT || k==KEY_RIGHT)
+      already_pressed=!wait_key_released(already_pressed?100:300); // about 10 repetition/second
+    else if  (k==KEY_UP || k==KEY_DOWN)
+      already_pressed=!wait_key_released(already_pressed?150:300); // about 6-7 repetition/second
+    else if (k==12) // del key
+      already_pressed=!wait_key_released(already_pressed?175:300); // about 5-6 repetition/second
+    else {
+      wait_no_key_pressed();
+      already_pressed=false;
+    }
+    if (allow_suspend && k==0x83 && prime_shift){ // OFF
+      //OSSuspendThread(ev_threadptr);
+      if (offon_handler)
+	offon_handler(offon_param);
+      SysPowerOff();
+      //OSResumeThread(ev_threadptr);
+      prime_shift=false;
+      displaymenu(prime_shift?menu_shift:(prime_alpha?menu_alpha:menu),menubg);
+      continue;
+    }
+    if (k==KEY_SHIFT){
+      if (prime_alpha){
+	prime_shift=false;
+	prime_alpha ^= 2;
+      }
+      else
+	prime_shift=!prime_shift;	
+      displaymenu(prime_shift?menu_shift:(prime_alpha?menu_alpha:menu),menubg);
+      continue;
+    }
+    if (k==KEY_PRIME_ALPHA){
+      if (prime_alpha & 4)
+	prime_alpha =0; // unlock alpha
+      else if (prime_alpha & 1)
+	prime_alpha=4; // lock alpha
+      else
+	prime_alpha=1; // 1-alpha
+      displaymenu(prime_shift?menu_shift:(prime_alpha?menu_alpha:menu),menubg);
+      continue;
+    }
+    k=prime_translate(k);
+    if (prime_alpha || prime_shift){
+      prime_shift=false;
+      if ((prime_alpha&4)==0) // alpha not locked
+	prime_alpha=0;
+      displaymenu(prime_shift?menu_shift:(prime_alpha?menu_alpha:menu),menubg);
+    }
+    return k;
+  }
+  // void send_key_event(struct s_ns_event* eventbuf, unsigned short keycode_asciicode, INT is_key_up, INT unknown): since r721. Simulate a key event
+}
+
+int getkey(int allow_suspend){
+  return menu_getkey(allow_suspend,0,0,0,0);
+}
+#else
+int getkey(int allow_suspend){
+  sync_screen();
+  if (shutdown_state)
+    return KEY_SHUTDOWN;
+  int lastkey=-1;
+  for (;;){
+    if (prime_keydown==0){
+      OSSleep(25);
+      continue;
+    }
+    int cursor_state=0;
+    int i=0;
+    if (prime_keydown==KEY_SHIFT){
+      while (i==0 && prime_keydown==KEY_SHIFT){
+	// will not work now, requires a prime_secondkey 
+	if (isKeyPressed(KEY_LEFT))
+	  i=KEY_SELECT_LEFT;
+	if (isKeyPressed(KEY_RIGHT))
+	  i=KEY_SELECT_RIGHT;
+	if (isKeyPressed(KEY_UP))
+	  i=KEY_SELECT_UP;
+	if (isKeyPressed(KEY_DOWN))
+	  i=KEY_SELECT_DOWN;
+	OSSleep(25); // wait shift release
+      }
+      if (i!=0){
+	prime_select=true;
+      }
+      if (i==0){
+	prime_shift=!prime_shift;
+	statusline(0);
+	sync_screen();
+	i=-1;
+      }
+    }
+    else {
+      if (prime_select){
+	prime_select=prime_shift=false;
+	statusline(0);
+	sync_screen();
+	continue;
+      }
+      i=ascii_get(&cursor_state);
+    }
+    if (i<0){
+      wait_no_key_pressed();
+      continue;
+    }
+    if ( (i>=KEY_CTRL_LEFT && i<=KEY_CTRL_RIGHT) ||
+	 (i>=KEY_UP_CTRL && i<=KEY_RIGHT_CTRL) ||
+	 (i>=KEY_SELECT_LEFT && i<=KEY_SELECT_RIGHT) ||
+	 i==KEY_CTRL_DEL){
+      int delay=(lastkey==i)?5:60,j;
+      for (j=0;j<delay && prime_keydown!=0;++j){
+	if (0) // (nspireemu)
+	  ck_msleep(14);
+	else
+	  ck_msleep(1);
+      }
+      if (prime_keydown!=0)
+	lastkey=i;
+      else 
+	lastkey=-1;
+    }
+    else {
+      wait_no_key_pressed();
+      lastkey=-1;
+    }
+    if (prime_alpha || prime_shift){
+      prime_alpha=prime_shift=false;
+      statusline(0);
+      sync_screen();
+    }
+    return i;
+  }
+  // void send_key_event(struct s_ns_event* eventbuf, unsigned short keycode_asciicode, INT is_key_up, INT unknown): since r721. Simulate a key event
+}
+#endif
+
+void GetKey(int * key){
+  *key=getkey(true);
+}
+
+int alphawasactive(int * key){
+#if 1
+  return prevalpha;
+#else // for keyboards without alpha key (like nspire)
+  if (*key==KEY_DOWN_CTRL){
+    *key=KEY_CTRL_DOWN;
+    return true;
+  }
+  if (*key==KEY_UP_CTRL){
+    *key=KEY_CTRL_UP;
+    return true;
+  }
+  if (*key==KEY_LEFT_CTRL){
+    *key=KEY_CTRL_LEFT;
+    return true;
+  }
+  if (*key==KEY_RIGHT_CTRL){
+    *key=KEY_CTRL_RIGHT;
+    return true;
+  }
+  return false;
+#endif
+}
+
+int isalphaactive(){
+  return prime_alpha;
+}
+
+void lock_alpha(){
+  prime_alpha=4;
+}
+
+int GetSetupSetting(int k){
+  if (k!=0x14) return -1;
+  if (!isalphaactive()) return 0;
+  return 4;
+}
+
+void reset_kbd(){
+  prime_alpha=prime_shift=0;
+}
+
+int on_key_enabled=true;
+
+void enable_back_interrupt(){
+  on_key_enabled=true;
+}
+
+void disable_back_interrupt(){
+  on_key_enabled=false;
+}
+#endif  // HPG1
+
 #ifdef TICE
 int clip_ymin=0;
 // TI83
@@ -1024,6 +4138,133 @@ void statusline(int mode){
   sync_screen();
 }
 
+#define EVENT_QUEUE_SIZE 64 // Doit de préférence être une puissance de 2
+
+typedef struct {
+  SDL_Event events[EVENT_QUEUE_SIZE];
+  volatile int head; // Seul le thread d'entrée écrit ici
+  volatile int tail; // Seul le thread principal écrit ici
+} event_queue_t;
+
+static volatile event_queue_t g_event_queue = { .head = 0, .tail = 0 };
+
+int push_event(const SDL_Event *event) {
+  if (0) PrintfXY(0,0,"push %x %x                  ",event->type,event->key.sym); // loopsleep(1000);
+  int next_head = (g_event_queue.head + 1) % EVENT_QUEUE_SIZE;
+  // Si la file est pleine, on abandonne l'événement (head rattrape tail)
+  if (next_head == g_event_queue.tail) 
+    return 0; 
+  g_event_queue.events[g_event_queue.head] = *event;
+  DMB; // Barrière mémoire 
+  g_event_queue.head = next_head;
+  return 1;
+}
+
+static void enqueue_sdl_mouse_event(Uint8 type, Uint8 button, int x, int y) {
+  if (0) PrintfXY(0,0,"mouse %x %x                  ",x,y); // loopsleep(1000);
+  SDL_Event ev;
+  ev.type = type;
+  // Recadrage Y et clamp pour rester dans les bornes du jeu (320x200)
+  if (y < 0) y = 0;
+  if (y >= LCD_HEIGHT_PX) game_y = LCD_HEIGHT_PX-1;
+  if (x < 0) x = 0;
+  if (x >= LCD_WIDTH_PX) x = LCD_WIDTH_PX-1;
+  if (type == SDL_MOUSEMOTION) {
+    ev.motion.x = x;
+    ev.motion.y = game_y;
+  } else { // SDL_MOUSEBUTTONDOWN / SDL_MOUSEBUTTONUP
+    ev.button.button = button;
+    ev.button.x = x;
+    ev.button.y = game_y;
+  }
+  push_event(&ev);
+}
+
+int queue_event_manager(void *ptr) {
+  ui_event_t e;
+  for (int i = 0;; i++) {
+    if (GetEvent(&e)) {
+      unsigned *ptr_ev = (unsigned *)&e;
+      unsigned prime_event = ptr_ev[7];
+      if (prime_event == 0x10) { // Key down
+	prime_keydown = ptr_ev[8] >> 16;
+	unsigned k = prime_translate(prime_keydown);
+	SDL_Event ev;
+	ev.type = SDL_KEYDOWN;
+	ev.key.sym = k;
+	push_event(&ev);
+      } else if (prime_event == 0x100000) { // Key up
+	if (prime_keydown==0x83){
+	  rgbSetColor(0xff0000);  rgbSetBkColor(0);  Printf("\f  *** ON pressed *** "); // loopsleep(200);
+	  sdk_ctrl_c=1;
+	}
+	unsigned k = prime_translate(ptr_ev[8] >> 16);
+	SDL_Event ev;
+	ev.type = SDL_KEYUP;
+	ev.key.sym = k;
+	push_event(&ev);
+	prime_keydown = 0;
+      }
+      else if (prime_event == 0x1) { // Mouse Push
+	prime_mousex = ptr_ev[8] >> 16;
+	prime_mousey = ptr_ev[9];
+	prime_mousedown = 1;
+	// 1. Déplacer la souris sous le point de contact
+	enqueue_sdl_mouse_event(SDL_MOUSEMOTION, 0, prime_mousex, prime_mousey);
+	// 2. Enfoncer le bouton gauche
+	enqueue_sdl_mouse_event(SDL_MOUSEBUTTONDOWN, SDL_BUTTON_LEFT, prime_mousex, prime_mousey);
+      } else if (prime_event == 0x2 && prime_mousedown) { // Mouse Drag
+	prime_mousex = ptr_ev[8] >> 16;
+	prime_mousey = ptr_ev[9];
+	// Déplacement de la souris pendant l'appui
+	enqueue_sdl_mouse_event(SDL_MOUSEMOTION, 0, prime_mousex, prime_mousey);
+      } else if (prime_event == 0x8 && prime_mousedown) { // Mouse Release
+	prime_mousex = ptr_ev[8] >> 16;
+	prime_mousey = ptr_ev[9];
+	prime_mousedown = 0;
+	// Relâchement du bouton gauche
+	enqueue_sdl_mouse_event(SDL_MOUSEBUTTONUP, SDL_BUTTON_LEFT, prime_mousex, prime_mousey);
+      }
+    }
+    // Petite pause pour relâcher le CPU si la file GetEvent est vide
+    OSSleep(5);
+  }
+  return 0;
+}
+
+// SDL_PollEvent: non blocking read of events
+int SDL_PollEvent(SDL_Event *event) {
+  DMB;
+  if (g_event_queue.head == g_event_queue.tail) 
+    return 0;    // Si head == tail, la file est vide
+  //Printf("\fpollevent %i",g_event_queue.tail); loopsleep(1000);
+  *event = g_event_queue.events[g_event_queue.tail];
+  g_event_queue.tail = (g_event_queue.tail + 1) % EVENT_QUEUE_SIZE;
+  return 1;
+}
+
+int SDL_Init(unsigned flags) {
+  if (get_fb() == 2) 
+    return -1; // Échec d'initialisation de l'affichage
+  start_ticks = millis(); 
+  // reset queue
+  g_event_queue.head = 0;
+  g_event_queue.tail = 0;
+  if (!ev_threadptr){
+    ev_threadptr = OSCreateThread(queue_event_manager, 0,0,0);
+    if (ev_threadptr == NULL) 
+      return -1;
+  }  
+  ++flags; // does not do anything
+  return 0; // 0 = Succès selon la spécification SDL
+}
+
+void SDL_Quit(void) {
+  if (ev_threadptr != NULL) {
+    OSTerminateThread((thread_t*) ev_threadptr,0);
+    ev_threadptr = NULL;
+  }
+}
 
 #define SHIFTCTRL(x, y, z) (nspire_ctrl ? (z) : nspire_shift ? (y) : (x))
 #define SHIFT(x, y) SHIFTCTRL(x, y, x)
@@ -1548,3 +4789,2881 @@ void set_exam_mode(int i){
 }
 #endif // NSPIRE_NEWLIB
 
+// drawing strings without OS
+#define COLOR_WHITE 0xffffff
+#define COLOR_BLACK 0
+
+extern fb_screen_t * fb_screen; 
+
+static int console_x = 0;
+static int console_y = 0;
+
+void vGL_set_pixel(unsigned x,unsigned y,int c){
+  //if (y==93) printf("glsetp:%d,%d,%d\n",x,y,c);
+  if (x>=VIR_LCD_PIX_W || y>=VIR_LCD_PIX_H)
+    return;
+  fb_screen[x + y * VIR_LCD_PIX_W] = c;
+}
+
+void vGL_SetPoint(unsigned int x, unsigned int y, int c)
+{
+  if ((x >= VIR_LCD_PIX_W)) {
+    x = VIR_LCD_PIX_W - 1;
+  }
+  if ((y >= VIR_LCD_PIX_H)) {
+    y = VIR_LCD_PIX_H - 1;
+  }
+  vGL_set_pixel(x,y,c);
+} 
+
+int vGL_GetPoint(unsigned int x,unsigned int y)
+{
+  if ((x >= VIR_LCD_PIX_W)) {
+    x = VIR_LCD_PIX_W - 1;
+  }
+  if ((y >= VIR_LCD_PIX_H)) {
+    y = VIR_LCD_PIX_H - 1;
+  }
+  return fb_screen[x + y * VIR_LCD_PIX_W];
+}  
+    
+void vGL_putChar(int x0, int y0, char ch, int fg, int bg, int fontSize) {
+  int font_w;
+  int font_h;
+  const unsigned char *pCh;
+  unsigned int x = 0, y = 0, i = 0, j = 0; 
+ 
+  if ((ch < ' ') || (ch > '~' + 1)) {
+    return;
+  } 
+
+  switch (fontSize) {
+  case 8:
+    font_w = 5;
+    font_h = 8;
+    pCh = VGA_Ascii_5x8 + (ch - ' ') * font_h;
+    break;
+
+  case 12:
+    font_w = 6;
+    font_h = 12;
+    pCh = orp_Ascii_6x12 + (ch - ' ') * font_h;
+    break;
+
+  case 16:
+    font_w = 8;
+    font_h = 16;
+    pCh = VGA_Ascii_8x16 + (ch - ' ') * font_h;
+    break;
+
+  case 14:
+    font_w = 7;
+    font_h = 14;
+    pCh = VGA_Ascii_7x14 + (ch - ' ') * font_h;
+    break;
+
+  default:
+    return;
+  }
+
+  while (y < font_h) {
+    while (x < font_w) {
+      if (((x0 + x) < VIR_LCD_PIX_W) && ((y0 + y) < VIR_LCD_PIX_H))
+	//fb_screen[(x0 + x) + VIR_LCD_PIX_W * (y0 + y)] = ((*pCh << x) & 0x80U)?fg:bg;
+	vGL_set_pixel(x0+x,y0+y, ((*pCh << x) & 0x80U)?fg:bg);
+      x++;
+    }
+    x = 0;
+    y++;
+    pCh++;
+  }
+
+}
+
+int vGL_putString(int x0, int y0, const char *s, int fg, int bg, int fontSize) {
+  int font_w=8;
+  int font_h=16;
+  int len = strlen(s);
+  int x = 0, y = 0;
+
+  if (fontSize <= 16) {
+    switch (fontSize) {
+    case 8:
+      font_w = 5;
+      break;
+    case 12:
+      font_w = 6;
+      break;
+    case 14:
+      font_w = 7;
+      break;
+    case 16:
+      font_w = 8;
+      break;
+    default:
+      font_w = 8;
+      break;
+    }
+    font_h = fontSize;
+    while (*s) {
+      vGL_putChar((x0) + x, (y0) + y, *s, fg, bg, fontSize);
+      s++;
+      x += font_w;
+      if (x > VIR_LCD_PIX_W) {
+	break; // or wrap next line?
+	x = 0;
+	y += font_h;
+	if (y > VIR_LCD_PIX_H) {
+	  break;
+	}
+      }
+    }
+    return x0+x;
+  }
+    
+}
+
+
+void vGL_clearArea(unsigned int x0, unsigned int y0, unsigned int x1, unsigned int y1) {
+  if ((x0 >= VIR_LCD_PIX_W)) {
+    x0 = VIR_LCD_PIX_W - 1;
+  }
+  if ((y0 >= VIR_LCD_PIX_H)) {
+    y0 = VIR_LCD_PIX_H - 1;
+  }
+  if ((x1 >= VIR_LCD_PIX_W)) {
+    x1 = VIR_LCD_PIX_W - 1;
+  }
+  if ((y1 >= VIR_LCD_PIX_H)) {
+    y1 = VIR_LCD_PIX_H - 1;
+  }
+
+  printf("clra:%d,%d,%d,%d\n", x0, x1, y0, y1);
+  for (int y = y0; y < y1; y++){
+    for (int x = x0; x < x1; x++) {
+      vGL_set_pixel(x,y,COLOR_WHITE); // fb_screen[x + y * VIR_LCD_PIX_W] = COLOR_WHITE;
+    }
+  }    
+    
+}
+
+void vGL_setArea(unsigned int x0, unsigned int y0, unsigned int x1, unsigned int y1, unsigned int color) 
+{
+  if ((x0 >= VIR_LCD_PIX_W)) {
+    x0 = VIR_LCD_PIX_W - 1;
+  }
+  if ((y0 >= VIR_LCD_PIX_H)) {
+    y0 = VIR_LCD_PIX_H - 1;
+  }
+  if ((x1 >= VIR_LCD_PIX_W)) {
+    x1 = VIR_LCD_PIX_W - 1;
+  }
+  if ((y1 >= VIR_LCD_PIX_H)) {
+    y1 = VIR_LCD_PIX_H - 1;
+  }
+
+  for (int y = y0; y < y1; y++)
+    for (int x = x0; x < x1; x++) {
+      {
+	vGL_set_pixel(x,y,color); // fb_screen[x + y * VIR_LCD_PIX_W] = color;
+      }
+    }
+
+}
+
+void vGL_ConsLocate(int x, int y)
+{
+  console_x = x;
+  console_y = y;
+}
+
+void vGL_ConsOut(char *s, int rev)
+{
+  if (rev)
+    vGL_putString(console_x * 6, console_y * 12, (char *)s, COLOR_WHITE, COLOR_BLACK, 12);
+  else
+    vGL_putString(console_x * 6, console_y * 12, (char *)s, COLOR_BLACK, COLOR_WHITE, 12);
+}
+
+
+extern int shell_fontw,shell_fonth;
+
+
+// Created from bdf2c Version 3, (c) 2009, 2010 by Lutz Sammer
+//	License AGPLv3: GNU Affero General Public License version 3
+/// @{ defines to have human readable font files
+#define ________ 0x00
+#define _______X 0x01
+#define ______X_ 0x02
+#define ______XX 0x03
+#define _____X__ 0x04
+#define _____X_X 0x05
+#define _____XX_ 0x06
+#define _____XXX 0x07
+#define ____X___ 0x08
+#define ____X__X 0x09
+#define ____X_X_ 0x0A
+#define ____X_XX 0x0B
+#define ____XX__ 0x0C
+#define ____XX_X 0x0D
+#define ____XXX_ 0x0E
+#define ____XXXX 0x0F
+#define ___X____ 0x10
+#define ___X___X 0x11
+#define ___X__X_ 0x12
+#define ___X__XX 0x13
+#define ___X_X__ 0x14
+#define ___X_X_X 0x15
+#define ___X_XX_ 0x16
+#define ___X_XXX 0x17
+#define ___XX___ 0x18
+#define ___XX__X 0x19
+#define ___XX_X_ 0x1A
+#define ___XX_XX 0x1B
+#define ___XXX__ 0x1C
+#define ___XXX_X 0x1D
+#define ___XXXX_ 0x1E
+#define ___XXXXX 0x1F
+#define __X_____ 0x20
+#define __X____X 0x21
+#define __X___X_ 0x22
+#define __X___XX 0x23
+#define __X__X__ 0x24
+#define __X__X_X 0x25
+#define __X__XX_ 0x26
+#define __X__XXX 0x27
+#define __X_X___ 0x28
+#define __X_X__X 0x29
+#define __X_X_X_ 0x2A
+#define __X_X_XX 0x2B
+#define __X_XX__ 0x2C
+#define __X_XX_X 0x2D
+#define __X_XXX_ 0x2E
+#define __X_XXXX 0x2F
+#define __XX____ 0x30
+#define __XX___X 0x31
+#define __XX__X_ 0x32
+#define __XX__XX 0x33
+#define __XX_X__ 0x34
+#define __XX_X_X 0x35
+#define __XX_XX_ 0x36
+#define __XX_XXX 0x37
+#define __XXX___ 0x38
+#define __XXX__X 0x39
+#define __XXX_X_ 0x3A
+#define __XXX_XX 0x3B
+#define __XXXX__ 0x3C
+#define __XXXX_X 0x3D
+#define __XXXXX_ 0x3E
+#define __XXXXXX 0x3F
+#define _X______ 0x40
+#define _X_____X 0x41
+#define _X____X_ 0x42
+#define _X____XX 0x43
+#define _X___X__ 0x44
+#define _X___X_X 0x45
+#define _X___XX_ 0x46
+#define _X___XXX 0x47
+#define _X__X___ 0x48
+#define _X__X__X 0x49
+#define _X__X_X_ 0x4A
+#define _X__X_XX 0x4B
+#define _X__XX__ 0x4C
+#define _X__XX_X 0x4D
+#define _X__XXX_ 0x4E
+#define _X__XXXX 0x4F
+#define _X_X____ 0x50
+#define _X_X___X 0x51
+#define _X_X__X_ 0x52
+#define _X_X__XX 0x53
+#define _X_X_X__ 0x54
+#define _X_X_X_X 0x55
+#define _X_X_XX_ 0x56
+#define _X_X_XXX 0x57
+#define _X_XX___ 0x58
+#define _X_XX__X 0x59
+#define _X_XX_X_ 0x5A
+#define _X_XX_XX 0x5B
+#define _X_XXX__ 0x5C
+#define _X_XXX_X 0x5D
+#define _X_XXXX_ 0x5E
+#define _X_XXXXX 0x5F
+#define _XX_____ 0x60
+#define _XX____X 0x61
+#define _XX___X_ 0x62
+#define _XX___XX 0x63
+#define _XX__X__ 0x64
+#define _XX__X_X 0x65
+#define _XX__XX_ 0x66
+#define _XX__XXX 0x67
+#define _XX_X___ 0x68
+#define _XX_X__X 0x69
+#define _XX_X_X_ 0x6A
+#define _XX_X_XX 0x6B
+#define _XX_XX__ 0x6C
+#define _XX_XX_X 0x6D
+#define _XX_XXX_ 0x6E
+#define _XX_XXXX 0x6F
+#define _XXX____ 0x70
+#define _XXX___X 0x71
+#define _XXX__X_ 0x72
+#define _XXX__XX 0x73
+#define _XXX_X__ 0x74
+#define _XXX_X_X 0x75
+#define _XXX_XX_ 0x76
+#define _XXX_XXX 0x77
+#define _XXXX___ 0x78
+#define _XXXX__X 0x79
+#define _XXXX_X_ 0x7A
+#define _XXXX_XX 0x7B
+#define _XXXXX__ 0x7C
+#define _XXXXX_X 0x7D
+#define _XXXXXX_ 0x7E
+#define _XXXXXXX 0x7F
+#define X_______ 0x80
+#define X______X 0x81
+#define X_____X_ 0x82
+#define X_____XX 0x83
+#define X____X__ 0x84
+#define X____X_X 0x85
+#define X____XX_ 0x86
+#define X____XXX 0x87
+#define X___X___ 0x88
+#define X___X__X 0x89
+#define X___X_X_ 0x8A
+#define X___X_XX 0x8B
+#define X___XX__ 0x8C
+#define X___XX_X 0x8D
+#define X___XXX_ 0x8E
+#define X___XXXX 0x8F
+#define X__X____ 0x90
+#define X__X___X 0x91
+#define X__X__X_ 0x92
+#define X__X__XX 0x93
+#define X__X_X__ 0x94
+#define X__X_X_X 0x95
+#define X__X_XX_ 0x96
+#define X__X_XXX 0x97
+#define X__XX___ 0x98
+#define X__XX__X 0x99
+#define X__XX_X_ 0x9A
+#define X__XX_XX 0x9B
+#define X__XXX__ 0x9C
+#define X__XXX_X 0x9D
+#define X__XXXX_ 0x9E
+#define X__XXXXX 0x9F
+#define X_X_____ 0xA0
+#define X_X____X 0xA1
+#define X_X___X_ 0xA2
+#define X_X___XX 0xA3
+#define X_X__X__ 0xA4
+#define X_X__X_X 0xA5
+#define X_X__XX_ 0xA6
+#define X_X__XXX 0xA7
+#define X_X_X___ 0xA8
+#define X_X_X__X 0xA9
+#define X_X_X_X_ 0xAA
+#define X_X_X_XX 0xAB
+#define X_X_XX__ 0xAC
+#define X_X_XX_X 0xAD
+#define X_X_XXX_ 0xAE
+#define X_X_XXXX 0xAF
+#define X_XX____ 0xB0
+#define X_XX___X 0xB1
+#define X_XX__X_ 0xB2
+#define X_XX__XX 0xB3
+#define X_XX_X__ 0xB4
+#define X_XX_X_X 0xB5
+#define X_XX_XX_ 0xB6
+#define X_XX_XXX 0xB7
+#define X_XXX___ 0xB8
+#define X_XXX__X 0xB9
+#define X_XXX_X_ 0xBA
+#define X_XXX_XX 0xBB
+#define X_XXXX__ 0xBC
+#define X_XXXX_X 0xBD
+#define X_XXXXX_ 0xBE
+#define X_XXXXXX 0xBF
+#define XX______ 0xC0
+#define XX_____X 0xC1
+#define XX____X_ 0xC2
+#define XX____XX 0xC3
+#define XX___X__ 0xC4
+#define XX___X_X 0xC5
+#define XX___XX_ 0xC6
+#define XX___XXX 0xC7
+#define XX__X___ 0xC8
+#define XX__X__X 0xC9
+#define XX__X_X_ 0xCA
+#define XX__X_XX 0xCB
+#define XX__XX__ 0xCC
+#define XX__XX_X 0xCD
+#define XX__XXX_ 0xCE
+#define XX__XXXX 0xCF
+#define XX_X____ 0xD0
+#define XX_X___X 0xD1
+#define XX_X__X_ 0xD2
+#define XX_X__XX 0xD3
+#define XX_X_X__ 0xD4
+#define XX_X_X_X 0xD5
+#define XX_X_XX_ 0xD6
+#define XX_X_XXX 0xD7
+#define XX_XX___ 0xD8
+#define XX_XX__X 0xD9
+#define XX_XX_X_ 0xDA
+#define XX_XX_XX 0xDB
+#define XX_XXX__ 0xDC
+#define XX_XXX_X 0xDD
+#define XX_XXXX_ 0xDE
+#define XX_XXXXX 0xDF
+#define XXX_____ 0xE0
+#define XXX____X 0xE1
+#define XXX___X_ 0xE2
+#define XXX___XX 0xE3
+#define XXX__X__ 0xE4
+#define XXX__X_X 0xE5
+#define XXX__XX_ 0xE6
+#define XXX__XXX 0xE7
+#define XXX_X___ 0xE8
+#define XXX_X__X 0xE9
+#define XXX_X_X_ 0xEA
+#define XXX_X_XX 0xEB
+#define XXX_XX__ 0xEC
+#define XXX_XX_X 0xED
+#define XXX_XXX_ 0xEE
+#define XXX_XXXX 0xEF
+#define XXXX____ 0xF0
+#define XXXX___X 0xF1
+#define XXXX__X_ 0xF2
+#define XXXX__XX 0xF3
+#define XXXX_X__ 0xF4
+#define XXXX_X_X 0xF5
+#define XXXX_XX_ 0xF6
+#define XXXX_XXX 0xF7
+#define XXXXX___ 0xF8
+#define XXXXX__X 0xF9
+#define XXXXX_X_ 0xFA
+#define XXXXX_XX 0xFB
+#define XXXXXX__ 0xFC
+#define XXXXXX_X 0xFD
+#define XXXXXXX_ 0xFE
+#define XXXXXXXX 0xFF
+/// @}
+
+
+/// character bitmap for each encoding
+const unsigned char VGA_Ascii_7x14[] =   {           // ASCII
+  //  32 $20 'char32'
+  //	width 7, bbx 0, bby 0, bbw 1, bbh 1
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  33 $21 'char33'
+  //	width 7, bbx 2, bby 0, bbw 2, bbh 10
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  34 $22 'char34'
+  //	width 7, bbx 1, bby 6, bbw 5, bbh 4
+  _XX_XX__,
+  _XX_XX__,
+  _XX_XX__,
+  _XX_XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  35 $23 'char35'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _X__X___,
+  _XX_X___,
+  XXXXXX__,
+  XXXXXX__,
+  _X__X___,
+  _X__X___,
+  XXXXXX__,
+  XXXXXX__,
+  _X_XX___,
+  _X__X___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  36 $24 'char36'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 12
+  __XX____,
+  __XX____,
+  _XXXXX__,
+  XX__XX__,
+  XX______,
+  _XXX____,
+  __XXX___,
+  ____XX__,
+  XX__XX__,
+  XXXXX___,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  //  37 $25 'char37'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  38 $26 'char38'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXX____,
+  XX______,
+  XX__X___,
+  XX_XX___,
+  _XXXXX__,
+  XX_XX___,
+  XX_XX___,
+  XX_XX___,
+  XX_XX___,
+  _XX_XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  39 $27 'char39'
+  //	width 7, bbx 2, bby 6, bbw 2, bbh 4
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  40 $28 'char40'
+  //	width 7, bbx 1, bby -1, bbw 4, bbh 12
+  ___XX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  __XX____,
+  __XX____,
+  ___XX___,
+  ________,
+  ________,
+  //  41 $29 'char41'
+  //	width 7, bbx 1, bby -1, bbw 4, bbh 12
+  _XX_____,
+  __XX____,
+  __XX____,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  ________,
+  ________,
+  //  42 $2a 'char42'
+  //	width 7, bbx 0, bby 4, bbw 6, bbh 6
+  ________,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  __XX____,
+  _XXXX___,
+  _X__X___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  43 $2b 'char43'
+  //	width 7, bbx 0, bby 1, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  44 $2c 'char44'
+  //	width 7, bbx 1, bby -2, bbw 3, bbh 4
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  __XX____,
+  _XX_____,
+  ________,
+  ________,
+  //  45 $2d 'char45'
+  //	width 7, bbx 0, bby 4, bbw 6, bbh 1
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  46 $2e 'char46'
+  //	width 7, bbx 2, bby 0, bbw 2, bbh 2
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  47 $2f 'char47'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 12
+  ____XX__,
+  ____XX__,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  XX______,
+  XX______,
+  ________,
+  ________,
+  //  48 $30 'char48'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX_XXX__,
+  XX_XXX__,
+  XXX_XX__,
+  XXX_XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  49 $31 'char49'
+  //	width 7, bbx 0, bby 0, bbw 4, bbh 10
+  __XX____,
+  _XXX____,
+  XXXX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  50 $32 'char50'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  ____XX__,
+  ___XX___,
+  __XX____,
+  _XX_____,
+  XX______,
+  XX______,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  51 $33 'char51'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  ____XX__,
+  __XXX___,
+  ____XX__,
+  ____XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  52 $34 'char52'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  ___XX___,
+  __XXX___,
+  __XXX___,
+  _XXXX___,
+  _X_XX___,
+  XX_XX___,
+  XX_XX___,
+  XXXXXX__,
+  ___XX___,
+  ___XX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  53 $35 'char53'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  XX______,
+  XX______,
+  XXXXX___,
+  XX__XX__,
+  ____XX__,
+  ____XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  54 $36 'char54'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  XXXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  55 $37 'char55'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  XX__XX__,
+  XX__XX__,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  56 $38 'char56'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  _X_XX___,
+  __XX____,
+  _XX_X___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  57 $39 'char57'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXXX__,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  58 $3a 'char58'
+  //	width 7, bbx 2, bby 1, bbw 2, bbh 7
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  59 $3b 'char59'
+  //	width 7, bbx 1, bby -1, bbw 3, bbh 9
+  ________,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  __XX____,
+  _XX_____,
+  ________,
+  //  60 $3c 'char60'
+  //	width 7, bbx 0, bby 1, bbw 5, bbh 7
+  ________,
+  ________,
+  ________,
+  ___XX___,
+  __XX____,
+  _XX_____,
+  XX______,
+  _XX_____,
+  __XX____,
+  ___XX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  61 $3d 'char61'
+  //	width 7, bbx 0, bby 2, bbw 6, bbh 5
+  ________,
+  ________,
+  ________,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  62 $3e 'char62'
+  //	width 7, bbx 1, bby 1, bbw 5, bbh 7
+  ________,
+  ________,
+  ________,
+  _XX_____,
+  __XX____,
+  ___XX___,
+  ____XX__,
+  ___XX___,
+  __XX____,
+  _XX_____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  63 $3f 'char63'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  ____XX__,
+  ___XX___,
+  __XX____,
+  ________,
+  ________,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  64 $40 'char64'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  __XXX___,
+  _XX_XX__,
+  XX___X__,
+  XX_XXX__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_XXX__,
+  XX__XX__,
+  _XX_____,
+  __XXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  65 $41 'char65'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  __XX____,
+  __XX____,
+  _XXXX___,
+  _X_XX___,
+  _X__X___,
+  XX__XX__,
+  XXXXXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  66 $42 'char66'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXX____,
+  XX_XX___,
+  XX_XX___,
+  XX_XX___,
+  XXXX____,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  67 $43 'char67'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  68 $44 'char68'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXX____,
+  XX_XX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_XX___,
+  XXXX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  69 $45 'char69'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  XX______,
+  XX______,
+  XX______,
+  XXXXX___,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  70 $46 'char70'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  XX______,
+  XX______,
+  XX______,
+  XXXXX___,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  71 $47 'char71'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX______,
+  XX______,
+  XX_XXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXX_X__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  72 $48 'char72'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  73 $49 'char73'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  74 $4a 'char74'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXXX__,
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  75 $4b 'char75'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX_XX___,
+  XX_XX___,
+  XXXX____,
+  XX_XX___,
+  XX_XX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  76 $4c 'char76'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  77 $4d 'char77'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XXXXXX__,
+  XXXXXX__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  78 $4e 'char78'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XXX_XX__,
+  XXX_XX__,
+  XXX_XX__,
+  XX_XXX__,
+  XX_XXX__,
+  XX_XXX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  79 $4f 'char79'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  80 $50 'char80'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXX___,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  81 $51 'char81'
+  //	width 7, bbx 0, bby -2, bbw 6, bbh 12
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_XX___,
+  _XXX____,
+  ___XXX__,
+  ____XX__,
+  ________,
+  ________,
+  //  82 $52 'char82'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXX___,
+  XX_XX___,
+  XX_XX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  83 $53 'char83'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX______,
+  _XX_____,
+  ___XX___,
+  ____XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  84 $54 'char84'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  85 $55 'char85'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  86 $56 'char86'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _X__X___,
+  _X__X___,
+  _XXXX___,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  87 $57 'char87'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XXXXXX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  88 $58 'char88'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  _X__X___,
+  _XXXX___,
+  __XX____,
+  __XX____,
+  _XXXX___,
+  _X__X___,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  89 $59 'char89'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _X__X___,
+  _XXXX___,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  90 $5a 'char90'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XXXXXX__,
+  ____XX__,
+  ___XX___,
+  ___XX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  XX______,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  91 $5b 'char91'
+  //	width 7, bbx 1, bby -1, bbw 4, bbh 12
+  _XXXX___,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  _XXXX___,
+  ________,
+  ________,
+  //  92 $5c 'char92'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 12
+  XX______,
+  XX______,
+  _XX_____,
+  _XX_____,
+  _XX_____,
+  __XX____,
+  __XX____,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ____XX__,
+  ____XX__,
+  ________,
+  ________,
+  //  93 $5d 'char93'
+  //	width 7, bbx 1, bby -1, bbw 4, bbh 12
+  _XXXX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  _XXXX___,
+  ________,
+  ________,
+  //  94 $5e 'char94'
+  //	width 7, bbx 0, bby 4, bbw 6, bbh 6
+  __XX____,
+  __XX____,
+  _XXXX___,
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  95 $5f 'char95'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 1
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  96 $60 'char96'
+  //	width 7, bbx 1, bby 6, bbw 4, bbh 4
+  _XX_____,
+  _XXX____,
+  __XXX___,
+  ___XX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  97 $61 'char97'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  _XXXX___,
+  XX__XX__,
+  ____XX__,
+  _XXXXX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  98 $62 'char98'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX______,
+  XX______,
+  XX______,
+  XX_XX___,
+  XXX_XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  //  99 $63 'char99'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX______,
+  XX______,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 100 $64 'char100'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  _XXXXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_XXX__,
+  _XX_XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 101 $65 'char101'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XXXXXX__,
+  XX______,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 102 $66 'char102'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  ___XXX__,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 103 $67 'char103'
+  //	width 7, bbx 0, bby -2, bbw 6, bbh 9
+  ________,
+  ________,
+  ________,
+  _XXXXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  _XX_____,
+  ___XXX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  // 104 $68 'char104'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX______,
+  XX______,
+  XX______,
+  XX_XX___,
+  XXX_XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 105 $69 'char105'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  __XX____,
+  __XX____,
+  ________,
+  _XXX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 106 $6a 'char106'
+  //	width 7, bbx 0, bby -2, bbw 5, bbh 12
+  ___XX___,
+  ___XX___,
+  ________,
+  _XXXX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  ___XX___,
+  XX_XX___,
+  _XXX____,
+  ________,
+  ________,
+  // 107 $6b 'char107'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  XX______,
+  XX______,
+  XX______,
+  XX__XX__,
+  XX_XX___,
+  XXXX____,
+  XXXX____,
+  XX_XX___,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 108 $6c 'char108'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  _XXX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 109 $6d 'char109'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX_XX___,
+  XXXXXX__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 110 $6e 'char110'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX_XX___,
+  XXX_XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 111 $6f 'char111'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 112 $70 'char112'
+  //	width 7, bbx 0, bby -2, bbw 6, bbh 9
+  ________,
+  ________,
+  ________,
+  ________,
+  XX_XX___,
+  XXX_XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XXXXX___,
+  XX______,
+  XX______,
+  XX______,
+  ________,
+  // 113 $71 'char113'
+  //	width 7, bbx 0, bby -2, bbw 6, bbh 9
+  ________,
+  ________,
+  ________,
+  ________,
+  _XXXXX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_XXX__,
+  _XX_XX__,
+  ____XX__,
+  ____XX__,
+  ____XX__,
+  ________,
+  // 114 $72 'char114'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX_XX___,
+  XXX_XX__,
+  XX__XX__,
+  XX______,
+  XX______,
+  XX______,
+  XX______,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 115 $73 'char115'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  _XXXX___,
+  XX__XX__,
+  XX______,
+  _XXXX___,
+  ____XX__,
+  XX__XX__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 116 $74 'char116'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 10
+  ___X____,
+  __XX____,
+  __XX____,
+  XXXXXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ___XXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 117 $75 'char117'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  XX_XXX__,
+  _XX_XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 118 $76 'char118'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _X__X___,
+  _XXXX___,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 119 $77 'char119'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX__XX__,
+  XX__XX__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  XX_X_X__,
+  _XXXX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 120 $78 'char120'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XX__XX__,
+  XX__XX__,
+  _XXXX___,
+  __XX____,
+  _XXXX___,
+  XX__XX__,
+  XX__XX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 121 $79 'char121'
+  //	width 7, bbx 0, bby -2, bbw 6, bbh 9
+  ________,
+  ________,
+  ________,
+  XX__XX__,
+  XX__XX__,
+  XX__XX__,
+  _X__X___,
+  _XXXX___,
+  __XX____,
+  __XX____,
+  _XX_____,
+  _XX_____,
+  ________,
+  ________,
+  // 122 $7a 'char122'
+  //	width 7, bbx 0, bby 0, bbw 6, bbh 7
+  ________,
+  ________,
+  ________,
+  XXXXXX__,
+  ____XX__,
+  ___XX___,
+  __XX____,
+  _XX_____,
+  XX______,
+  XXXXXX__,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 123 $7b 'char123'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 12
+  ___XXX__,
+  __XX____,
+  __XX____,
+  __XX____,
+  ___X____,
+  XXX_____,
+  XXX_____,
+  ___X____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ___XXX__,
+  ________,
+  ________,
+  // 124 $7c 'char124'
+  //	width 7, bbx 2, bby -1, bbw 2, bbh 12
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __XX____,
+  ________,
+  ________,
+  // 125 $7d 'char125'
+  //	width 7, bbx 0, bby -1, bbw 6, bbh 12
+  XXX_____,
+  __XX____,
+  __XX____,
+  __XX____,
+  __X_____,
+  ___XXX__,
+  ___XXX__,
+  __X_____,
+  __XX____,
+  __XX____,
+  __XX____,
+  XXX_____,
+  ________,
+  ________,
+  // 126 $7e 'char126'
+  //	width 7, bbx 0, bby 3, bbw 6, bbh 4
+  _XX__X__,
+  XXXX_X__,
+  X_XXXX__,
+  X__XX___,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  // 160 $a0 'char160'
+  //	width 7, bbx 0, bby 0, bbw 1, bbh 1
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+  ________,
+};
+
+const unsigned char orp_Ascii_6x12[] =              // ASCII
+{
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, //    32 ' '
+	0x00,0x00,0x00,0x20,0x20,0x20,0x20,0x20,0x00,0x20,0x00,0x00, //    33 '!'
+	0x00,0x00,0x50,0x50,0x50,0x00,0x00,0x00,0x00,0x00,0x00,0x00, //    34 '"'
+	0x00,0x00,0x00,0x00,0x50,0xF8,0x50,0xF8,0x50,0x00,0x00,0x00, //    35 '#'
+	0x00,0x00,0x00,0x20,0x78,0xA0,0x70,0x28,0xF0,0x20,0x00,0x00, //    36 '$'
+	0x00,0x00,0x00,0x00,0x00,0x90,0x20,0x40,0x90,0x00,0x00,0x00, //    37 '%'
+	0x00,0x00,0x00,0x40,0xA0,0xA0,0x40,0xA8,0x90,0x68,0x00,0x00, //    38 '&'
+	0x00,0x00,0x20,0x20,0x20,0x00,0x00,0x00,0x00,0x00,0x00,0x00, //    39 '''
+	0x00,0x00,0x10,0x20,0x40,0x40,0x40,0x40,0x40,0x20,0x10,0x00, //    40 '('
+	0x00,0x00,0x40,0x20,0x10,0x10,0x10,0x10,0x10,0x20,0x40,0x00, //    41 ')'
+	0x00,0x00,0x00,0x20,0xA8,0x70,0x70,0xA8,0x20,0x00,0x00,0x00, //    42 '*'
+	0x00,0x00,0x00,0x00,0x20,0x20,0xF8,0x20,0x20,0x00,0x00,0x00, //    43 '+'
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x60,0x60,0xC0,0x00, //    44 ','
+	0x00,0x00,0x00,0x00,0x00,0x00,0xF8,0x00,0x00,0x00,0x00,0x00, //    45 '-'
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x60,0x60,0x00,0x00, //    46 '.'
+	0x00,0x00,0x00,0x08,0x08,0x10,0x20,0x40,0x80,0x80,0x00,0x00, //    47 '/'
+	0x00,0x00,0x00,0x70,0x88,0x88,0xA8,0x88,0x88,0x70,0x00,0x00, //    48 '0'
+	0x00,0x00,0x00,0x20,0x60,0xA0,0x20,0x20,0x20,0xF8,0x00,0x00, //    49 '1'
+	0x00,0x00,0x00,0x70,0x88,0x08,0x10,0x20,0x40,0xF8,0x00,0x00, //    50 '2'
+	0x00,0x00,0x00,0xF8,0x08,0x10,0x30,0x08,0x88,0x70,0x00,0x00, //    51 '3'
+	0x00,0x00,0x00,0x10,0x30,0x50,0x90,0xF8,0x10,0x38,0x00,0x00, //    52 '4'
+	0x00,0x00,0x00,0xF8,0x80,0xF0,0x08,0x08,0x88,0x70,0x00,0x00, //    53 '5'
+	0x00,0x00,0x00,0x70,0x80,0xF0,0x88,0xA8,0x88,0x70,0x00,0x00, //    54 '6'
+	0x00,0x00,0x00,0xF8,0x08,0x10,0x10,0x20,0x20,0x20,0x00,0x00, //    55 '7'
+	0x00,0x00,0x00,0x70,0x88,0x88,0x70,0x88,0x88,0x70,0x00,0x00, //    56 '8'
+	0x00,0x00,0x00,0x70,0x88,0xA8,0x88,0x78,0x08,0x70,0x00,0x00, //    57 '9'
+	0x00,0x00,0x00,0x00,0x00,0x60,0x60,0x00,0x60,0x60,0x00,0x00, //    58 ':'
+	0x00,0x00,0x00,0x00,0x00,0x60,0x60,0x00,0x60,0x60,0xC0,0x00, //    59 ';'
+	0x00,0x00,0x00,0x00,0x10,0x20,0x40,0x20,0x10,0x00,0x00,0x00, //    60 '<'
+	0x00,0x00,0x00,0x00,0x00,0xF8,0x00,0xF8,0x00,0x00,0x00,0x00, //    61 '='
+	0x00,0x00,0x00,0x00,0x40,0x20,0x10,0x20,0x40,0x00,0x00,0x00, //    62 '>'
+	0x00,0x00,0x00,0x70,0x88,0x08,0x10,0x20,0x00,0x20,0x00,0x00, //    63 '?'
+	0x00,0x00,0x00,0x70,0x88,0xB8,0xA8,0xB8,0x80,0x70,0x00,0x00, //    64 '@'
+	0x00,0x00,0x00,0x20,0x50,0x88,0x88,0xF8,0x88,0x88,0x00,0x00, //    65 'A'
+	0x00,0x00,0x00,0xF0,0x88,0x88,0xF0,0x88,0x88,0xF0,0x00,0x00, //    66 'B'
+	0x00,0x00,0x00,0x70,0x88,0x80,0x80,0x80,0x88,0x70,0x00,0x00, //    67 'C'
+	0x00,0x00,0x00,0xF0,0x88,0x88,0x88,0x88,0x88,0xF0,0x00,0x00, //    68 'D'
+	0x00,0x00,0x00,0xF8,0x80,0x80,0xF0,0x80,0x80,0xF8,0x00,0x00, //    69 'E'
+	0x00,0x00,0x00,0xF8,0x80,0x80,0xF0,0x80,0x80,0x80,0x00,0x00, //    70 'F'
+	0x00,0x00,0x00,0x70,0x88,0x80,0x98,0x88,0x88,0x70,0x00,0x00, //    71 'G'
+	0x00,0x00,0x00,0x88,0x88,0x88,0xF8,0x88,0x88,0x88,0x00,0x00, //    72 'H'
+	0x00,0x00,0x00,0xF8,0x20,0x20,0x20,0x20,0x20,0xF8,0x00,0x00, //    73 'I'
+	0x00,0x00,0x00,0x08,0x08,0x08,0x08,0x08,0x88,0x70,0x00,0x00, //    74 'J'
+	0x00,0x00,0x00,0x88,0x90,0xA0,0xC0,0xA0,0x90,0x88,0x00,0x00, //    75 'K'
+	0x00,0x00,0x00,0x80,0x80,0x80,0x80,0x80,0x80,0xF8,0x00,0x00, //    76 'L'
+	0x00,0x00,0x00,0x88,0xD8,0xA8,0xA8,0x88,0x88,0x88,0x00,0x00, //    77 'M'
+	0x00,0x00,0x00,0x88,0xC8,0xA8,0x98,0x88,0x88,0x88,0x00,0x00, //    78 'N'
+	0x00,0x00,0x00,0x70,0x88,0x88,0x88,0x88,0x88,0x70,0x00,0x00, //    79 'O'
+	0x00,0x00,0x00,0xF0,0x88,0x88,0xF0,0x80,0x80,0x80,0x00,0x00, //    80 'P'
+	0x00,0x00,0x00,0x70,0x88,0x88,0x88,0x88,0xA8,0x70,0x08,0x00, //    81 'Q'
+	0x00,0x00,0x00,0xF0,0x88,0x88,0xF0,0x88,0x88,0x88,0x00,0x00, //    82 'R'
+	0x00,0x00,0x00,0x70,0x88,0x80,0x70,0x08,0x88,0x70,0x00,0x00, //    83 'S'
+	0x00,0x00,0x00,0xF8,0x20,0x20,0x20,0x20,0x20,0x20,0x00,0x00, //    84 'T'
+	0x00,0x00,0x00,0x88,0x88,0x88,0x88,0x88,0x88,0x70,0x00,0x00, //    85 'U'
+	0x00,0x00,0x00,0x88,0x88,0x88,0x88,0x50,0x50,0x20,0x00,0x00, //    86 'V'
+	0x00,0x00,0x00,0x88,0x88,0x88,0x88,0xA8,0xA8,0xD8,0x00,0x00, //    87 'W'
+	0x00,0x00,0x00,0x88,0x88,0x50,0x20,0x50,0x88,0x88,0x00,0x00, //    88 'X'
+	0x00,0x00,0x00,0x88,0x88,0x88,0x70,0x20,0x20,0x20,0x00,0x00, //    89 'Y'
+	0x00,0x00,0x00,0xF8,0x08,0x10,0x20,0x40,0x80,0xF8,0x00,0x00, //    90 'Z'
+	0x00,0x00,0x70,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x70,0x00, //    91 '['
+	0x00,0x00,0x00,0x80,0x80,0x40,0x20,0x10,0x08,0x08,0x00,0x00, //    92 '\'
+	0x00,0x00,0x70,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x70,0x00, //    93 ']'
+	0x00,0x00,0x20,0x50,0x88,0x00,0x00,0x00,0x00,0x00,0x00,0x00, //    94 '^'
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xF8, //    95 '_'
+	0x00,0x00,0x40,0x20,0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x00, //    96 '`'
+	0x00,0x00,0x00,0x00,0x00,0x78,0x88,0x88,0x98,0x68,0x00,0x00, //    97 'a'
+	0x00,0x00,0x00,0x80,0x80,0xF0,0x88,0x88,0x88,0xF0,0x00,0x00, //    98 'b'
+	0x00,0x00,0x00,0x00,0x00,0x70,0x88,0x80,0x80,0x78,0x00,0x00, //    99 'c'
+	0x00,0x00,0x00,0x08,0x08,0x78,0x88,0x88,0x88,0x78,0x00,0x00, //   100 'd'
+	0x00,0x00,0x00,0x00,0x00,0x70,0x88,0xF8,0x80,0x78,0x00,0x00, //   101 'e'
+	0x00,0x00,0x00,0x18,0x20,0x70,0x20,0x20,0x20,0x20,0x00,0x00, //   102 'f'
+	0x00,0x00,0x00,0x00,0x00,0x78,0x88,0x88,0x88,0x78,0x88,0x70, //   103 'g'
+	0x00,0x00,0x00,0x80,0x80,0xF0,0x88,0x88,0x88,0x88,0x00,0x00, //   104 'h'
+	0x00,0x00,0x00,0x20,0x00,0x60,0x20,0x20,0x20,0x30,0x00,0x00, //   105 'i'
+	0x00,0x00,0x00,0x20,0x00,0x60,0x20,0x20,0x20,0x20,0x20,0xC0, //   106 'j'
+	0x00,0x00,0x00,0x80,0x80,0x88,0x90,0xA0,0xD0,0x88,0x00,0x00, //   107 'k'
+	0x00,0x00,0x00,0x60,0x20,0x20,0x20,0x20,0x20,0x30,0x00,0x00, //   108 'l'
+	0x00,0x00,0x00,0x00,0x00,0xF0,0xA8,0xA8,0xA8,0xA8,0x00,0x00, //   109 'm'
+	0x00,0x00,0x00,0x00,0x00,0xB0,0xC8,0x88,0x88,0x88,0x00,0x00, //   110 'n'
+	0x00,0x00,0x00,0x00,0x00,0x70,0x88,0x88,0x88,0x70,0x00,0x00, //   111 'o'
+	0x00,0x00,0x00,0x00,0x00,0xF0,0x88,0x88,0x88,0xF0,0x80,0x80, //   112 'p'
+	0x00,0x00,0x00,0x00,0x00,0x78,0x88,0x88,0x88,0x78,0x08,0x08, //   113 'q'
+	0x00,0x00,0x00,0x00,0x00,0xB0,0xC8,0x80,0x80,0x80,0x00,0x00, //   114 'r'
+	0x00,0x00,0x00,0x00,0x00,0x78,0x80,0x70,0x08,0xF0,0x00,0x00, //   115 's'
+	0x00,0x00,0x00,0x20,0x20,0x70,0x20,0x20,0x20,0x18,0x00,0x00, //   116 't'
+	0x00,0x00,0x00,0x00,0x00,0x88,0x88,0x88,0x98,0x68,0x00,0x00, //   117 'u'
+	0x00,0x00,0x00,0x00,0x00,0x88,0x88,0x50,0x50,0x20,0x00,0x00, //   118 'v'
+	0x00,0x00,0x00,0x00,0x00,0xA8,0xA8,0xA8,0xA8,0x50,0x00,0x00, //   119 'w'
+	0x00,0x00,0x00,0x00,0x00,0x88,0x50,0x20,0x50,0x88,0x00,0x00, //   120 'x'
+	0x00,0x00,0x00,0x00,0x00,0x88,0x88,0x88,0x88,0x78,0x88,0x70, //   121 'y'
+	0x00,0x00,0x00,0x00,0x00,0xF8,0x10,0x20,0x40,0xF8,0x00,0x00, //   122 'z'
+	0x00,0x00,0x10,0x20,0x20,0x20,0xC0,0x20,0x20,0x20,0x10,0x00, //   123 '{'
+	0x00,0x00,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x00, //   124 '|'
+	0x00,0x00,0x40,0x20,0x20,0x20,0x18,0x20,0x20,0x20,0x40,0x00, //   125 '}'
+	0x00,0x00,0x00,0x00,0x00,0x48,0xA8,0x90,0x00,0x00,0x00,0x00, //   126 '~'
+};
+
+const unsigned char VGA_Ascii_5x8[] =              // ASCII
+{
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, // - -
+
+	0x20,0x20,0x20,0x20,0x20,0x00,0x20,0x00, // -!-
+
+	0x50,0x50,0x50,0x00,0x00,0x00,0x00,0x00, // -"-
+
+	0x50,0x50,0xF8,0x50,0xF8,0x50,0x50,0x00, // -#-
+
+	0x20,0x78,0xC0,0x70,0x28,0xF0,0x20,0x00, // -$-
+
+	0xC0,0xC8,0x10,0x20,0x40,0x98,0x18,0x00, // -%-
+
+	0x40,0xA0,0xA0,0x40,0xA8,0x90,0x68,0x00, // -&-
+
+	0x30,0x20,0x40,0x00,0x00,0x00,0x00,0x00, // -'-
+
+	0x10,0x20,0x40,0x40,0x40,0x20,0x10,0x00, // -(-
+
+	0x40,0x20,0x10,0x10,0x10,0x20,0x40,0x00, // -)-
+
+	0x20,0xA8,0x70,0x20,0x70,0xA8,0x20,0x00, // -*-
+
+	0x20,0x20,0x20,0xF8,0x20,0x20,0x20,0x00, // -+-
+
+	0x00,0x00,0x00,0x00,0x60,0x40,0x80,0x00, // -,-
+
+	0x00,0x00,0x00,0xF8,0x00,0x00,0x00,0x00, // ---
+
+	0x00,0x00,0x00,0x00,0x00,0x60,0x60,0x00, // -.-
+
+	0x00,0x08,0x10,0x20,0x40,0x80,0x00,0x00, // -/-
+
+	0x70,0x88,0x98,0xA8,0xC8,0x88,0x70,0x00, // -0-
+
+	0x20,0x60,0x20,0x20,0x20,0x20,0x70,0x00, // -1-
+
+	0x70,0x88,0x08,0x30,0x40,0x80,0xF8,0x00, // -2-
+
+	0xF8,0x08,0x10,0x30,0x08,0x88,0x70,0x00, // -3-
+
+	0x10,0x30,0x50,0x90,0xF8,0x10,0x10,0x00, // -4-
+
+	0xF8,0x80,0xF0,0x08,0x08,0x88,0x70,0x00, // -5-
+
+	0x38,0x40,0x80,0xF0,0x88,0x88,0x70,0x00, // -6-
+
+	0xF8,0x08,0x10,0x20,0x40,0x40,0x40,0x00, // -7-
+
+	0x70,0x88,0x88,0x70,0x88,0x88,0x70,0x00, // -8-
+
+	0x70,0x88,0x88,0x78,0x08,0x10,0xE0,0x00, // -9-
+
+	0x00,0x60,0x60,0x00,0x60,0x60,0x00,0x00, // -:-
+
+	0x00,0x60,0x60,0x00,0x60,0x60,0x80,0x00, // -;-
+
+	0x10,0x20,0x40,0x80,0x40,0x20,0x10,0x00, // -<-
+
+	0x00,0x00,0xF8,0x00,0xF8,0x00,0x00,0x00, // -=-
+
+	0x40,0x20,0x10,0x08,0x10,0x20,0x40,0x00, // ->-
+
+	0x70,0x88,0x10,0x20,0x20,0x00,0x20,0x00, // -?-
+
+	0x70,0x88,0xB8,0xA8,0xB8,0x80,0x78,0x00, // -@-
+
+	0x20,0x50,0x88,0x88,0xF8,0x88,0x88,0x00, // -A-
+
+	0xF0,0x88,0x88,0xF0,0x88,0x88,0xF0,0x00, // -B-
+
+	0x70,0x88,0x80,0x80,0x80,0x88,0x70,0x00, // -C-
+
+	0xF0,0x88,0x88,0x88,0x88,0x88,0xF0,0x00, // -D-
+
+	0xF8,0x80,0x80,0xF0,0x80,0x80,0xF8,0x00, // -E-
+
+	0xF8,0x80,0x80,0xF0,0x80,0x80,0x80,0x00, // -F-
+
+	0x70,0x88,0x80,0x80,0xB8,0x88,0x78,0x00, // -G-
+
+	0x88,0x88,0x88,0xF8,0x88,0x88,0x88,0x00, // -H-
+
+	0x70,0x20,0x20,0x20,0x20,0x20,0x70,0x00, // -I-
+
+	0x38,0x10,0x10,0x10,0x10,0x90,0x60,0x00, // -J-
+
+	0x88,0x90,0xA0,0xC0,0xA0,0x90,0x88,0x00, // -K-
+
+	0x80,0x80,0x80,0x80,0x80,0x80,0xF8,0x00, // -L-
+
+	0x88,0xD8,0xA8,0xA8,0x88,0x88,0x88,0x00, // -M-
+
+	0x88,0x88,0xC8,0xA8,0x98,0x88,0x88,0x00, // -N-
+
+	0x70,0x88,0x88,0x88,0x88,0x88,0x70,0x00, // -O-
+
+	0xF0,0x88,0x88,0xF0,0x80,0x80,0x80,0x00, // -P-
+
+	0x70,0x88,0x88,0x88,0xA8,0x90,0x68,0x00, // -Q-
+
+	0xF0,0x88,0x88,0xF0,0xA0,0x90,0x88,0x00, // -R-
+
+	0x70,0x88,0x80,0x70,0x08,0x88,0x70,0x00, // -S-
+
+	0xF8,0x20,0x20,0x20,0x20,0x20,0x20,0x00, // -T-
+
+	0x88,0x88,0x88,0x88,0x88,0x88,0x70,0x00, // -U-
+
+	0x88,0x88,0x88,0x88,0x88,0x50,0x20,0x00, // -V-
+
+	0x88,0x88,0x88,0xA8,0xA8,0xD8,0x88,0x00, // -W-
+
+	0x88,0x88,0x50,0x20,0x50,0x88,0x88,0x00, // -X-
+
+	0x88,0x88,0x50,0x20,0x20,0x20,0x20,0x00, // -Y-
+
+	0xF8,0x08,0x10,0x20,0x40,0x80,0xF8,0x00, // -Z-
+
+	0xF0,0xC0,0xC0,0xC0,0xC0,0xC0,0xF0,0x00, // -[-
+
+	0x00,0x80,0x40,0x20,0x10,0x08,0x00,0x00, // -\-
+
+	0x78,0x18,0x18,0x18,0x18,0x18,0x78,0x00, // -]-
+
+	0x20,0x70,0xA8,0x20,0x20,0x20,0x20,0x00, // -^-
+
+	0x00,0x20,0x40,0xF8,0x40,0x20,0x00,0x00, // -_-
+
+	0x20,0x10,0x08,0x00,0x00,0x00,0x00,0x00, // -`-
+
+	0x00,0x00,0xE0,0x10,0x70,0x90,0x68,0x00, // -a-
+
+	0x80,0x80,0xB0,0xC8,0x88,0xC8,0xB0,0x00, // -b-
+
+	0x00,0x00,0x70,0x88,0x80,0x80,0x70,0x00, // -c-
+
+	0x08,0x08,0x68,0x98,0x88,0x98,0x68,0x00, // -d-
+
+	0x00,0x00,0x70,0x88,0xF0,0x80,0x70,0x00, // -e-
+
+	0x30,0x48,0x40,0xF0,0x40,0x40,0x40,0x00, // -f-
+
+	0x00,0x00,0x70,0x88,0x88,0x78,0x08,0xF0, // -g-
+
+	0x80,0x80,0xB0,0xC8,0x88,0x88,0x88,0x00, // -h-
+
+	0x20,0x00,0x00,0x20,0x20,0x20,0x20,0x00, // -i-
+
+	0x10,0x00,0x00,0x30,0x10,0x10,0x10,0x60, // -j-
+
+	0x80,0x80,0x90,0xA0,0xC0,0xA0,0x98,0x00, // -k-
+
+	0x60,0x20,0x20,0x20,0x20,0x20,0x70,0x00, // -l-
+
+	0x00,0x00,0x50,0xA8,0xA8,0xA8,0xA8,0x00, // -m-
+
+	0x00,0x00,0xB0,0x48,0x48,0x48,0x48,0x00, // -n-
+
+	0x00,0x00,0x70,0x88,0x88,0x88,0x70,0x00, // -o-
+
+	0x00,0x00,0xF0,0x88,0x88,0xF0,0x80,0x80, // -p-
+
+	0x00,0x00,0x78,0x88,0x88,0x78,0x08,0x08, // -q-
+
+	0x00,0x00,0xB0,0x48,0x40,0x40,0x40,0x00, // -r-
+
+	0x00,0x00,0x78,0x80,0x70,0x08,0xF0,0x00, // -s-
+
+	0x40,0x40,0xF8,0x40,0x40,0x48,0x30,0x00, // -t-
+
+	0x00,0x00,0x90,0x90,0x90,0x90,0x68,0x00, // -u-
+
+	0x00,0x00,0x88,0x88,0x88,0x50,0x20,0x00, // -v-
+
+	0x00,0x00,0xA8,0xA8,0xA8,0xA8,0x50,0x00, // -w-
+
+	0x00,0x00,0x88,0x50,0x20,0x50,0x88,0x00, // -x-
+
+	0x00,0x00,0x88,0x88,0x98,0x68,0x08,0xF0, // -y-
+
+	0x00,0x00,0xF8,0x10,0x20,0x40,0xF8,0x00, // -z-
+
+	0x20,0x40,0x40,0x80,0x40,0x40,0x20,0x00, // -{-
+
+	0x20,0x20,0x20,0x00,0x20,0x20,0x20,0x00, // -|-
+
+	0x20,0x10,0x10,0x08,0x10,0x10,0x20,0x00, // -}-
+
+	0x00,0x00,0x40,0xA8,0x10,0x00,0x00,0x00, // -~-
+
+	0xA8,0x50,0xA8,0x50,0xA8,0x50,0xA8,0x00, // --
+};
+
+ 
+const unsigned char VGA_Ascii_6x12[] =              // ASCII
+{
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // - -
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x10,0x10,0x10,0x10,0x10,0x00,0x00,  // -!-
+	0x10,0x00,0x00,0x00,
+
+	0x00,0x6C,0x48,0x48,0x00,0x00,0x00,0x00,  // -"-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x14,0x14,0x28,0x7C,0x28,0x7C,0x28,  // -#-
+	0x50,0x50,0x00,0x00,
+
+	0x00,0x10,0x38,0x40,0x40,0x38,0x48,0x70,  // -$-
+	0x10,0x10,0x00,0x00,
+
+	0x00,0x20,0x50,0x20,0x0C,0x70,0x08,0x14,  // -%-
+	0x08,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x18,0x20,0x20,0x54,0x48,  // -&-
+	0x34,0x00,0x00,0x00,
+
+	0x00,0x10,0x10,0x10,0x10,0x00,0x00,0x00,  // -'-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x08,0x08,0x10,0x10,0x10,0x10,0x10,  // -(-
+	0x10,0x08,0x08,0x00,
+
+	0x00,0x20,0x20,0x10,0x10,0x10,0x10,0x10,  // -)-
+	0x10,0x20,0x20,0x00,
+
+	0x00,0x10,0x7C,0x10,0x28,0x28,0x00,0x00,  // -*-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x10,0x10,0x10,0xFC,0x10,0x10,  // -+-
+	0x10,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,  // -,-
+	0x10,0x30,0x20,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x7C,0x00,0x00,  // ---
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x30,  // -.-
+	0x30,0x00,0x00,0x00,
+
+	0x00,0x04,0x04,0x08,0x08,0x10,0x10,0x20,  // -/-
+	0x20,0x40,0x00,0x00,
+
+	0x00,0x38,0x44,0x44,0x44,0x44,0x44,0x44,  // -0-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x30,0x10,0x10,0x10,0x10,0x10,0x10,  // -1-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x04,0x08,0x10,0x20,0x44,  // -2-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x04,0x18,0x04,0x04,0x44,  // -3-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x0C,0x14,0x14,0x24,0x44,0x7C,0x04,  // -4-
+	0x0C,0x00,0x00,0x00,
+
+	0x00,0x3C,0x20,0x20,0x38,0x04,0x04,0x44,  // -5-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x1C,0x20,0x40,0x78,0x44,0x44,0x44,  // -6-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x7C,0x44,0x04,0x08,0x08,0x08,0x10,  // -7-
+	0x10,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x44,0x38,0x44,0x44,0x44,  // -8-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x44,0x44,0x3C,0x04,0x08,  // -9-
+	0x70,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x30,0x30,0x00,0x00,0x30,  // -:-
+	0x30,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x18,0x18,0x00,0x00,0x18,  // -;-
+	0x30,0x20,0x00,0x00,
+
+	0x00,0x00,0x0C,0x10,0x60,0x80,0x60,0x10,  // -<-
+	0x0C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x7C,0x00,0x7C,0x00,  // -=-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC0,0x20,0x18,0x04,0x18,0x20,  // ->-
+	0xC0,0x00,0x00,0x00,
+
+	0x00,0x00,0x18,0x24,0x04,0x08,0x10,0x00,  // -?-
+	0x30,0x00,0x00,0x00,
+
+	0x38,0x44,0x44,0x4C,0x54,0x54,0x4C,0x40,  // -@-
+	0x44,0x38,0x00,0x00,
+
+	0x00,0x30,0x10,0x28,0x28,0x28,0x7C,0x44,  // -A-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0xF8,0x44,0x44,0x78,0x44,0x44,0x44,  // -B-
+	0xF8,0x00,0x00,0x00,
+
+	0x00,0x3C,0x44,0x40,0x40,0x40,0x40,0x44,  // -C-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0xF0,0x48,0x44,0x44,0x44,0x44,0x48,  // -D-
+	0xF0,0x00,0x00,0x00,
+
+	0x00,0xFC,0x44,0x50,0x70,0x50,0x40,0x44,  // -E-
+	0xFC,0x00,0x00,0x00,
+
+	0x00,0x7C,0x20,0x28,0x38,0x28,0x20,0x20,  // -F-
+	0x70,0x00,0x00,0x00,
+
+	0x00,0x3C,0x44,0x40,0x40,0x4C,0x44,0x44,  // -G-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x44,0x7C,0x44,0x44,0x44,  // -H-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0x7C,0x10,0x10,0x10,0x10,0x10,0x10,  // -I-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x3C,0x08,0x08,0x08,0x48,0x48,0x48,  // -J-
+	0x30,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x48,0x50,0x70,0x48,0x44,  // -K-
+	0xE4,0x00,0x00,0x00,
+
+	0x00,0x70,0x20,0x20,0x20,0x20,0x24,0x24,  // -L-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0xEC,0x6C,0x6C,0x54,0x54,0x44,0x44,  // -M-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0xEC,0x64,0x64,0x54,0x54,0x54,0x4C,  // -N-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x44,0x44,0x44,0x44,0x44,  // -O-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x78,0x24,0x24,0x24,0x38,0x20,0x20,  // -P-
+	0x70,0x00,0x00,0x00,
+
+	0x00,0x38,0x44,0x44,0x44,0x44,0x44,0x44,  // -Q-
+	0x38,0x1C,0x00,0x00,
+
+	0x00,0xF8,0x44,0x44,0x44,0x78,0x48,0x44,  // -R-
+	0xE0,0x00,0x00,0x00,
+
+	0x00,0x34,0x4C,0x40,0x38,0x04,0x04,0x64,  // -S-
+	0x58,0x00,0x00,0x00,
+
+	0x00,0xFC,0x90,0x10,0x10,0x10,0x10,0x10,  // -T-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x44,0x44,0x44,0x44,0x44,  // -U-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x44,0x28,0x28,0x28,0x10,  // -V-
+	0x10,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x44,0x54,0x54,0x54,0x54,  // -W-
+	0x28,0x00,0x00,0x00,
+
+	0x00,0xC4,0x44,0x28,0x10,0x10,0x28,0x44,  // -X-
+	0xC4,0x00,0x00,0x00,
+
+	0x00,0xEC,0x44,0x28,0x28,0x10,0x10,0x10,  // -Y-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x7C,0x44,0x08,0x10,0x10,0x20,0x44,  // -Z-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x38,0x20,0x20,0x20,0x20,0x20,0x20,  // -[-
+	0x20,0x20,0x38,0x00,
+
+	0x00,0x40,0x20,0x20,0x20,0x10,0x10,0x08,  // -\-
+	0x08,0x08,0x00,0x00,
+
+	0x00,0x38,0x08,0x08,0x08,0x08,0x08,0x08,  // -]-
+	0x08,0x08,0x38,0x00,
+
+	0x00,0x10,0x10,0x28,0x44,0x00,0x00,0x00,  // -^-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // -_-
+	0x00,0x00,0x00,0xFC,
+
+	0x00,0x10,0x08,0x00,0x00,0x00,0x00,0x00,  // -`-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x38,0x44,0x3C,0x44,0x44,  // -a-
+	0x3C,0x00,0x00,0x00,
+
+	0x00,0xC0,0x40,0x58,0x64,0x44,0x44,0x44,  // -b-
+	0xF8,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x3C,0x44,0x40,0x40,0x44,  // -c-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x0C,0x04,0x34,0x4C,0x44,0x44,0x44,  // -d-
+	0x3C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x38,0x44,0x7C,0x40,0x40,  // -e-
+	0x3C,0x00,0x00,0x00,
+
+	0x00,0x1C,0x20,0x7C,0x20,0x20,0x20,0x20,  // -f-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x34,0x4C,0x44,0x44,0x44,  // -g-
+	0x3C,0x04,0x38,0x00,
+
+	0x00,0xC0,0x40,0x58,0x64,0x44,0x44,0x44,  // -h-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0x10,0x00,0x70,0x10,0x10,0x10,0x10,  // -i-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x10,0x00,0x78,0x08,0x08,0x08,0x08,  // -j-
+	0x08,0x08,0x70,0x00,
+
+	0x00,0xC0,0x40,0x5C,0x48,0x70,0x50,0x48,  // -k-
+	0xDC,0x00,0x00,0x00,
+
+	0x00,0x30,0x10,0x10,0x10,0x10,0x10,0x10,  // -l-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xE8,0x54,0x54,0x54,0x54,  // -m-
+	0xFC,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xD8,0x64,0x44,0x44,0x44,  // -n-
+	0xEC,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x38,0x44,0x44,0x44,0x44,  // -o-
+	0x38,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xD8,0x64,0x44,0x44,0x44,  // -p-
+	0x78,0x40,0xE0,0x00,
+
+	0x00,0x00,0x00,0x34,0x4C,0x44,0x44,0x44,  // -q-
+	0x3C,0x04,0x0C,0x00,
+
+	0x00,0x00,0x00,0x6C,0x30,0x20,0x20,0x20,  // -r-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x3C,0x44,0x38,0x04,0x44,  // -s-
+	0x78,0x00,0x00,0x00,
+
+	0x00,0x00,0x20,0x7C,0x20,0x20,0x20,0x20,  // -t-
+	0x1C,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xCC,0x44,0x44,0x44,0x4C,  // -u-
+	0x34,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xEC,0x44,0x44,0x28,0x28,  // -v-
+	0x10,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xEC,0x44,0x54,0x54,0x54,  // -w-
+	0x28,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xCC,0x48,0x30,0x30,0x48,  // -x-
+	0xCC,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0xEC,0x44,0x24,0x28,0x18,  // -y-
+	0x10,0x10,0x78,0x00,
+
+	0x00,0x00,0x00,0x7C,0x48,0x10,0x20,0x44,  // -z-
+	0x7C,0x00,0x00,0x00,
+
+	0x00,0x08,0x10,0x10,0x10,0x10,0x20,0x10,  // -{-
+	0x10,0x10,0x08,0x00,
+
+	0x00,0x10,0x10,0x10,0x10,0x10,0x10,0x10,  // -|-
+	0x10,0x10,0x00,0x00,
+
+	0x00,0x20,0x10,0x10,0x10,0x10,0x08,0x10,  // -}-
+	0x10,0x10,0x20,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x24,0x58,0x00,  // -~-
+	0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x24,0x58,0x00,  // --
+	0x00,0x00,0x00,0x00,
+};
+
+const unsigned char VGA_Ascii_8x16[] =              // ASCII
+{
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // - -
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x18,0x3C,0x3C,0x3C,0x18,0x18,  // -!-
+	0x18,0x00,0x18,0x18,0x00,0x00,0x00,0x00,
+
+	0x00,0x66,0x66,0x66,0x24,0x00,0x00,0x00,  // -"-
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x6C,0x6C,0xFE,0x6C,0x6C,  // -#-
+	0x6C,0xFE,0x6C,0x6C,0x00,0x00,0x00,0x00,
+
+	0x18,0x18,0x7C,0xC6,0xC2,0xC0,0x7C,0x06,  // -$-
+	0x86,0xC6,0x7C,0x18,0x18,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0xC2,0xC6,0x0C,0x18,  // -%-
+	0x30,0x60,0xC6,0x86,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x38,0x6C,0x6C,0x38,0x76,0xDC,  // -&-
+	0xCC,0xCC,0xCC,0x76,0x00,0x00,0x00,0x00,
+
+	0x00,0x30,0x30,0x30,0x60,0x00,0x00,0x00,  // -'-
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x0C,0x18,0x30,0x30,0x30,0x30,  // -(-
+	0x30,0x30,0x18,0x0C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x30,0x18,0x0C,0x0C,0x0C,0x0C,  // -)-
+	0x0C,0x0C,0x18,0x30,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x66,0x3C,0xFF,  // -*-
+	0x3C,0x66,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x7E,  // -+-
+	0x18,0x18,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // -,-
+	0x00,0x18,0x18,0x18,0x30,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFE,  // ---
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // -.-
+	0x00,0x00,0x18,0x18,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x02,0x06,0x0C,0x18,  // -/-
+	0x30,0x60,0xC0,0x80,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0xCE,0xD6,0xD6,  // -0-
+	0xE6,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x18,0x38,0x78,0x18,0x18,0x18,  // -1-
+	0x18,0x18,0x18,0x7E,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0x06,0x0C,0x18,0x30,  // -2-
+	0x60,0xC0,0xC6,0xFE,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0x06,0x06,0x3C,0x06,  // -3-
+	0x06,0x06,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x0C,0x1C,0x3C,0x6C,0xCC,0xFE,  // -4-
+	0x0C,0x0C,0x0C,0x1E,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFE,0xC0,0xC0,0xC0,0xFC,0x0E,  // -5-
+	0x06,0x06,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x38,0x60,0xC0,0xC0,0xFC,0xC6,  // -6-
+	0xC6,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFE,0xC6,0x06,0x06,0x0C,0x18,  // -7-
+	0x30,0x30,0x30,0x30,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0xC6,0x7C,0xC6,  // -8-
+	0xC6,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0xC6,0x7E,0x06,  // -9-
+	0x06,0x06,0x0C,0x78,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x18,0x18,0x00,0x00,  // -:-
+	0x00,0x18,0x18,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x18,0x18,0x00,0x00,  // -;-
+	0x00,0x18,0x18,0x30,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x06,0x0C,0x18,0x30,0x60,  // -<-
+	0x30,0x18,0x0C,0x06,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0xFE,0x00,  // -=-
+	0x00,0xFE,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x60,0x30,0x18,0x0C,0x06,  // ->-
+	0x0C,0x18,0x30,0x60,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0x0C,0x18,0x18,  // -?-
+	0x18,0x00,0x18,0x18,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x7C,0xC6,0xC6,0xDE,0xDE,  // -@-
+	0xDE,0xDC,0xC0,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x10,0x38,0x6C,0xC6,0xC6,0xFE,  // -A-
+	0xC6,0xC6,0xC6,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFC,0x66,0x66,0x66,0x7C,0x66,  // -B-
+	0x66,0x66,0x66,0xFC,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x3C,0x66,0xC2,0xC0,0xC0,0xC0,  // -C-
+	0xC0,0xC2,0x66,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xF8,0x6C,0x66,0x66,0x66,0x66,  // -D-
+	0x66,0x66,0x6C,0xF8,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFE,0x66,0x62,0x68,0x78,0x68,  // -E-
+	0x60,0x62,0x66,0xFE,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFE,0x66,0x62,0x68,0x78,0x68,  // -F-
+	0x60,0x60,0x60,0xF0,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x3C,0x66,0xC2,0xC0,0xC0,0xDE,  // -G-
+	0xC6,0xC6,0x66,0x3A,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xC6,0xC6,0xC6,0xFE,0xC6,  // -H-
+	0xC6,0xC6,0xC6,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x3C,0x18,0x18,0x18,0x18,0x18,  // -I-
+	0x18,0x18,0x18,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x1E,0x0C,0x0C,0x0C,0x0C,0x0C,  // -J-
+	0xCC,0xCC,0xCC,0x78,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xE6,0x66,0x6C,0x6C,0x78,0x78,  // -K-
+	0x6C,0x66,0x66,0xE6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xF0,0x60,0x60,0x60,0x60,0x60,  // -L-
+	0x60,0x62,0x66,0xFE,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xEE,0xFE,0xFE,0xD6,0xC6,  // -M-
+	0xC6,0xC6,0xC6,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xE6,0xF6,0xFE,0xDE,0xCE,  // -N-
+	0xC6,0xC6,0xC6,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x38,0x6C,0xC6,0xC6,0xC6,0xC6,  // -O-
+	0xC6,0xC6,0x6C,0x38,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFC,0x66,0x66,0x66,0x7C,0x60,  // -P-
+	0x60,0x60,0x60,0xF0,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0xC6,0xC6,0xC6,  // -Q-
+	0xC6,0xD6,0xDE,0x7C,0x0C,0x0E,0x00,0x00,
+
+	0x00,0x00,0xFC,0x66,0x66,0x66,0x7C,0x6C,  // -R-
+	0x66,0x66,0x66,0xE6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7C,0xC6,0xC6,0x60,0x38,0x0C,  // -S-
+	0x06,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x7E,0x7E,0x5A,0x18,0x18,0x18,  // -T-
+	0x18,0x18,0x18,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,  // -U-
+	0xC6,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,  // -V-
+	0xC6,0x6C,0x38,0x10,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xC6,0xC6,0xC6,0xC6,0xD6,  // -W-
+	0xD6,0xFE,0x6C,0x6C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xC6,0xC6,0x6C,0x6C,0x38,0x38,  // -X-
+	0x6C,0x6C,0xC6,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x66,0x66,0x66,0x66,0x3C,0x18,  // -Y-
+	0x18,0x18,0x18,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xFE,0xC6,0x86,0x0C,0x18,0x30,  // -Z-
+	0x60,0xC2,0xC6,0xFE,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x3C,0x30,0x30,0x30,0x30,0x30,  // -[-
+	0x30,0x30,0x30,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x80,0xC0,0xE0,0x70,0x38,  // -\-
+	0x1C,0x0E,0x06,0x02,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x3C,0x0C,0x0C,0x0C,0x0C,0x0C,  // -]-
+	0x0C,0x0C,0x0C,0x3C,0x00,0x00,0x00,0x00,
+
+	0x10,0x38,0x6C,0xC6,0x00,0x00,0x00,0x00,  // -^-
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // -_-
+	0x00,0x00,0x00,0x00,0x00,0xFF,0x00,0x00,
+
+	0x30,0x30,0x18,0x00,0x00,0x00,0x00,0x00,  // -`-
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x78,0x0C,0x7C,  // -a-
+	0xCC,0xCC,0xCC,0x76,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0xE0,0x60,0x60,0x78,0x6C,0x66,  // -b-
+	0x66,0x66,0x66,0xDC,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x7C,0xC6,0xC0,  // -c-
+	0xC0,0xC0,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x1C,0x0C,0x0C,0x3C,0x6C,0xCC,  // -d-
+	0xCC,0xCC,0xCC,0x76,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x7C,0xC6,0xFE,  // -e-
+	0xC0,0xC0,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x38,0x6C,0x64,0x60,0xF0,0x60,  // -f-
+	0x60,0x60,0x60,0xF0,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x76,0xCC,0xCC,  // -g-
+	0xCC,0xCC,0xCC,0x7C,0x0C,0xCC,0x78,0x00,
+
+	0x00,0x00,0xE0,0x60,0x60,0x6C,0x76,0x66,  // -h-
+	0x66,0x66,0x66,0xE6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x18,0x18,0x00,0x38,0x18,0x18,  // -i-
+	0x18,0x18,0x18,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x06,0x06,0x00,0x0E,0x06,0x06,  // -j-
+	0x06,0x06,0x06,0x06,0x66,0x66,0x3C,0x00,
+
+	0x00,0x00,0xE0,0x60,0x60,0x66,0x6C,0x78,  // -k-
+	0x78,0x6C,0x66,0xE6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x38,0x18,0x18,0x18,0x18,0x18,  // -l-
+	0x18,0x18,0x18,0x3C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xEC,0xFE,0xD6,  // -m-
+	0xD6,0xD6,0xD6,0xD6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xDC,0x66,0x66,  // -n-
+	0x66,0x66,0x66,0x66,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x7C,0xC6,0xC6,  // -o-
+	0xC6,0xC6,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xDC,0x66,0x66,  // -p-
+	0x66,0x66,0x66,0x7C,0x60,0x60,0xF0,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x76,0xCC,0xCC,  // -q-
+	0xCC,0xCC,0xCC,0x7C,0x0C,0x0C,0x1E,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xDC,0x76,0x62,  // -r-
+	0x60,0x60,0x60,0xF0,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x7C,0xC6,0x60,  // -s-
+	0x38,0x0C,0xC6,0x7C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x10,0x30,0x30,0xFC,0x30,0x30,  // -t-
+	0x30,0x30,0x36,0x1C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xCC,0xCC,0xCC,  // -u-
+	0xCC,0xCC,0xCC,0x76,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0x66,0x66,0x66,  // -v-
+	0x66,0x66,0x3C,0x18,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xC6,0xC6,0xC6,  // -w-
+	0xD6,0xD6,0xFE,0x6C,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xC6,0x6C,0x38,  // -x-
+	0x38,0x38,0x6C,0xC6,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xC6,0xC6,0xC6,  // -y-
+	0xC6,0xC6,0xC6,0x7E,0x06,0x0C,0xF8,0x00,
+
+	0x00,0x00,0x00,0x00,0x00,0xFE,0xCC,0x18,  // -z-
+	0x30,0x60,0xC6,0xFE,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x0E,0x18,0x18,0x18,0x70,0x18,  // -{-
+	0x18,0x18,0x18,0x0E,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x18,0x18,0x18,0x18,0x00,0x18,  // -|-
+	0x18,0x18,0x18,0x18,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x70,0x18,0x18,0x18,0x0E,0x18,  // -}-
+	0x18,0x18,0x18,0x70,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x76,0xDC,0x00,0x00,0x00,0x00,  // -~-
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+
+	0x00,0x00,0x00,0x00,0x10,0x38,0x6C,0xC6,  // --
+	0xC6,0xC6,0xFE,0x00,0x00,0x00,0x00,0x00,
+};

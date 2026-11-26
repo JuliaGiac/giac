@@ -1162,7 +1162,7 @@ namespace giac {
     }
     // look in current directory for a value
     if ( secure_run || (!variables_are_files(contextptr)) 
-#if !defined __MINGW_H && !defined NSPIRE && !defined FXCG
+#if !defined __MINGW_H && !defined NSPIRE && !defined FXCG && !defined FREERTOS
 	 || (access((name()+string(cas_suffixe)).c_str(),R_OK))
 #endif
 	 ){
@@ -1192,7 +1192,7 @@ namespace giac {
 
   const char * identificateur::print(GIAC_CONTEXT) const{
     if (!strcmp(id_name,string_pi)){
-#if defined NUMWORKS || defined HP39
+#if defined NUMWORKS || defined HP39 || defined HPG1 || defined HPG2
       return string_pi;
 #endif
 #if !defined KHICAS 

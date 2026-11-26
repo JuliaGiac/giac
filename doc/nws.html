@@ -73,7 +73,8 @@
   <a class="w3-bar-item w3-button" href="#python" >Python</a>
   <a class="w3-bar-item w3-button" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html" >Doc</a>
   <a class="w3-bar-item w3-button" href="#install" >Install</a>
-  <a class="w3-bar-item w3-button" href="#reactiver" >Reactiver</a>
+  <a class="w3-bar-item w3-button" href="#crashdelta" >Crash Delta</a>
+  <a class="w3-bar-item w3-button" href="#reactiver" >Crash KhiCAS</a>
   <a class="w3-bar-item w3-button w3-hide-small" href="#report" >Rapport</a>
   <a class="w3-bar-item w3-button" href="#exam" >Examen</a>
   <a class="w3-bar-item w3-button w3-hide-small" href="#rescue" >Rescue</a>
@@ -175,7 +176,7 @@
     <li>
       En cas de probl&egrave;me persistant de connexion, essayez avec dfu-util
       comme expliqu&eacute; ici dans la section
-      <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html#sec7">Installation manuelle</a>
+      <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html#sec8">Installation manuelle</a>
       ou avec
       <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/install_fr">Xcas</a>.
   </ul>
@@ -220,12 +221,106 @@ d'Epsilon depuis Paramètres, A propos.
       <li>  <a class="w3-link"  href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html">Documentation</a>, 
         <a class="w3-link"
            href="https://github.com/Yaya-Cout/KhiCAS_guide/blob/626b9786ff19504152628cfa42447c87ab73f648/KhiCAS_guide.pdf">Tutoriel (par fmOOmf et Yaya-Cout)</a>,
-        <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html#sec53">Licences</a>,
-        <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html#sec55">Source</a>.
+      Licences <a class="w3-link"
+      href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html">GPL2
+      (KhiCAS)</a> et
+      <a class="w3-link"
+      href="https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode">CC
+    BY-NC-SA (Delta/Khi)</a>,
+      <a class="w3-link"
+      href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/khicasnw.html#sec87">Source</a>,
+      <a class="w3-link"
+      href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/delta.tar.bz2">Delta</a>.
       <li> 
-	<b> Installation pour Epsilon >= 19.5 (N0110) ou 20.1 (N0120)</b>
-	<ul>
-	  <li><b>étape 1:</b>
+      <b> Installation de Delta+KhiCAS pour Epsilon >= 19.5 (N0110) ou 20.1 (N0120)</b><br>
+      Delta est un firmware basé sur Epsilon 15.5/Omega/Upsilon, il
+      fonctionne sur toutes les calculatrices Numworks (pas seulement
+      les anciennes N0110 non verrouill&eacute;ee), 
+      avec des applications externes indépendantes de Numworks, dont KhiCAS.
+      Sur N0120 non verrouill&eacute;e, Delta double la m&eacute;moire 
+      utilisable pour KhiCAS.
+      <ul>
+        <li>
+         <em>Si votre calculatrice est verrouillée</em> 
+         <ul> 
+          <li><b>étape 1:</b>
+            Enfoncez la touche 6 de la calculatrice et 
+            appuyez avec un trombone sur la touche Reset au dos 
+            sans relacher 6, puis relachez< la touche 6.
+            Vous devez voir sur l'&eacute;cran de la calculatrice
+            une image d'un cable jaune reli&eacute; &agrave;
+            un ordinateur et <tt>numworks.com/rescue</tt>.
+            <br>Cliquez sur
+            <a class="w3-bar-item interface"
+               onclick="UI.nws_detect(UI.nws_detect_success,UI.nws_detect_failure)">
+              D&eacute;tecter</a> la Numworks.
+          <li> <b>étape 2</b>:
+            installez 
+            <a class="w3-bar-item interface" onclick="UI.numworks_install_slotb(2,0)">Delta+KhiCAS</a> 
+	  <li> <b>étape 3</b>:
+            Effectuez un RESET de la calculatrice
+            (appuyer avec un trombone au dos de la calculatrice).<br>
+            Si la calculatrice refuse de red&eacute;marrer,
+            il faut installer une version d'Epsilon
+            sur le slot A:
+            <ul>
+              <li>soit en vous procurant une image de Epsilon pour slot A
+                (sur N0110/N0115 la <a href="khicasnw.html#sec29">version 19.5</a> est recommandée)
+                &agrave; installer depuis <a href="https://ti-planet.github.io/webdfu_numworks/">le webdfu de tiplanet</a> 
+              <li>sinon depuis le 
+                <a href="https://my.numworks.com" target="_blank">site de
+                  Numworks</a>, mais je vous le déconseille fortement 
+                parce que vous ne pourrez alors
+                plus installer  de version d'Epsilon
+                inf&eacute;rieure &agrave; 24.11 et que cette action
+                est irréversible (sauf ouverture de la calculatrice
+                avec un tournevis). Essayez plutot de trouver une
+                personne qui a une calculatrice compatible, extrayez l'image
+                de Epsilon slot A de sa calculatrice 
+                depuis <a href="https://ti-planet.github.io/webdfu_numworks/">le webdfu de tiplanet</a> 
+                et installez-la sur votre calculatrice.
+            </ul>
+          <li> <a name="crashdelta"><b>Apr&egrave;s un crash/reset de Delta/KhiCAS</b></a><br>
+            Conservez ce signet!<br> 
+            En effet, à chaque crash ou reset, il faut <br>
+            <a class="w3-bar-item interface"
+               onclick="UI.nws_detect(UI.nws_detect_success,UI.nws_detect_failure)">
+              D&eacute;tecter</a> la Numworks puis<br>
+            <a class="w3-bar-item interface" onclick="UI.numworks_install_slotb(0,-3)">réactiver le lanceur du firmware Delta</a>
+          </ul>
+        <li>
+        <a name="installunlocked"><em>Si votre calculatrice est déverrouillée</em></a>
+        (par ouverture matérielle),
+        vous pouvez
+        <a class="w3-bar-item interface"
+        onclick="UI.nws_detect(UI.nws_detect_success,UI.nws_detect_failure)">
+        D&eacute;tecter</a> la Numworks et installer 
+        <a class="w3-bar-item interface"
+        onclick="UI.numworks_install_slotb(3,0)">Delta+KhiCAS unlocked</a>
+        (pour version de kernel 22 ou plus).
+        <br>
+        Pour déverrouiller une calculatrice, il faut
+        <a href="khicasnw#sec8">ouvrir la calculatrice</a>.
+        Auparavant, il faut pour une N0120
+        <a class="w3-bar-item interface"
+           onclick="UI.patch_bootloader_from_dfu()">patcher le bootloader</a>
+        (les versions 24 et 25 ont &eacute;t&eacute; test&eacute;es).
+        et
+        <a class="w3-bar-item interface" onclick="UI.patch_kernel_from_dfu()">patcher le kernel</a> 
+        puis renvoyer le kernel patché avant d'ouvrir la calculatrice.
+         <!---  
+          Notez qu'avec le patch automatique, apr&egrave;s un crash/reset
+          de la calculatrice il faut appuyer deux fois sur la touche
+          noire (alimentation) pour activer l'affichage (apr&egrave;
+          avoir appuy&egrave; sur la touche back si la calculatrice
+          est connect&egrave;e). Pour contourner ce probl&egrave;me,
+          lire <a href="khicasnw.html#sec13">cette section</a>
+          --->
+        </ul>
+      <li> 
+        <b> Installation de KhiCAS pour Epsilon >= 19.5 (N0110) ou 20.1 (N0120)</b>
+        <ul>
+          <li><b>étape 1:</b>
             Enfoncez la touche 6 de la calculatrice et 
             appuyez avec un trombone sur la touche Reset au dos 
             sans relacher 6, puis relachez la touche 6.
@@ -257,12 +352,20 @@ d'Epsilon depuis Paramètres, A propos.
   &agrave; installer depuis <a href="https://ti-planet.github.io/webdfu_numworks/">le webdfu de tiplanet</a> 
 <li>sinon depuis le 
    <a href="https://my.numworks.com" target="_blank">site de
-    Numworks</a>, mais notez que vous ne pourrez alors
+    Numworks</a>, mais je vous le déconseille fortement 
+  parce que vous ne pourrez alors
   plus installer  de version d'Epsilon
-  inf&eacute;rieure &agrave; 24.11.
+  inf&eacute;rieure &agrave; 24.11 et que cette action
+est irréversible (sauf ouverture de la calculatrice
+avec un tournevis). Essayez plutot de trouver une
+personne qui a une calculatrice compatible, extrayez l'image
+de Epsilon slot A de sa calculatrice 
+depuis <a href="https://ti-planet.github.io/webdfu_numworks/">le webdfu de tiplanet</a> 
+et installez-la sur votre
+calculatrice.
 </ul>
 
-          <li> <a name="etape4"><b>étape 4</b></a><br>
+          <li> <a name="etape4khicas"><b>étape 4</b></a><br>
 Si vous n'avez pas d'autres applications 
             externes, vous pouvez cliquer sur le<br>
             <a class="w3-bar-item interface" onclick="UI.numworks_install_slotb(0,-1)">lanceur</a><br>
@@ -283,14 +386,14 @@ Compatible avec
 <a href="sector19v23.0.0.110">23.0.0</a>, 
 <a href="sector19v23.1.0.110">23.1.0</a>, 
 <a href="sector19v23.2.0.110">23.2.0</a>, 
-<a href="sector19v23.2.3.110">23.2.3</a> (dernière version à sources publics), 
+<a href="sector19v23.2.3.110">23.2.3</a>,
 <a href="sector19v23.2.5.110">23.2.5</a>, 
 <a href="sector19v23.2.6.110">23.2.6</a>, 
 <a href="sector16v24.1.0.110">24.1.0</a>,
 <a href="sector17v24.5.0.110">24.5.0</a>,
 <a href="sector17v24.6.0.110">24.6.0</a>,
 <a href="sector17v24.8.0.110">24.8.0 ou 24.10.0 ou 24.11.0</a>,
-<a href="sector17v25.1.0.110">25.1.0</a>,
+<a href="sector17v25.1.0.110">25.1.0 ou 25.2.0</a>,
 <li> N0115; je n'ai pas de N0115 pour tester. Les userland N0110 et N0115
 ayant le même numéro de version et une empreinte source sha256 identique
 sont identiques à 1 octet près (correspondant au numéro
@@ -353,7 +456,7 @@ Vous devrez alors réactiver KhiCAS avec un ordinateur,
 conservez cette page dans vos signets.
 <br>
 Pour r&eacute;activer, il faut  presque toujours
-refaire <a href="#etape4">l'étape 4</a> ci-dessus
+refaire <a href="#etape4khicas">l'étape 4</a> ci-dessus
 (il est inutile de refaire les étapes 1 à 3), c'est-&agrave;-dire<br>
 <a class="w3-bar-item interface" onclick="UI.numworks_install_slotb(0,-1)">
 réinstaller le lanceur de KhiCAS</a>
@@ -403,7 +506,6 @@ N0110 ou une N0115.
       <li> <a name=install_unlocked>
         Installation Numworks N0110 avec Epsilon <= 15.5 (calculatrice ancienne qui n'a pas été mise à jour)</a>:
         <ul>
-          <li> Si vous etes enseignant et souhaitez tester KhiCAS compatible mode exame sur la derni&egrave;re version d'Epsilon (24.10), vous pouvez m'envoyer un email &agrave; l'adresse bernard.parisse at univ-grenoble-alpes.fr, depuis votre adresse email institutionnelle, en indiquant dans le message que vous conserverez confidentielles les informations fournies (le but est d'&eacute;viter de rendre public une version avec une faille que des &eacute;l&egrave;ves pourraient exploiter pour frauder).
           <li><a class="w3-bar-item interface"
                  onclick="UI.nws_detect(UI.nws_detect_success,UI.nws_detect_failure)">
               D&eacute;tecter</a> la Numworks.
@@ -478,7 +580,7 @@ N0110 ou une N0115.
     <h3 id="exam" class="w3-margin">Certification mode examen:</h3>
     <div class="w3-col-x">
       Pour certifier la conformité d'une calculatrice Numworks
-      non verrouillée <b>contenant la version complète de KhiCAS</b> avec la
+      non verrouillée <b>contenant KhiCAS</b> avec la
       r&eacute;glementation française du mode examen,
 <ul>
 <li>
@@ -486,11 +588,12 @@ N0110 ou une N0115.
            onclick="UI.nws_detect(UI.nws_detect_success,UI.nws_detect_failure)">
           d&eacute;tectez</a> la calculatrice 
 <li> cliquez sur le bouton
-        <a class="w3-bar-item interface" onclick="UI.numworks_certify(nws_sig,false);">Certification</a><br>
+<a class="w3-bar-item interface"
+   onclick="(async () => { const r = await UI.numworks_certify(nws_sig,false); if (r!==-1) { $id('exam').scrollIntoView();} })();">Certification</a>
 </ul>
         Le test prend entre 15 et 30 secondes, il peut aisément etre fait
         par un surveillant pendant un examen depuis son smartphone en ouvrant
-        <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/nws.html#exam">ce
+        <a class="w3-link" href="https://www-fourier.univ-grenoble-alpes.fr/~parisse/numworks/nws.html#exam">ce
           lien</a>
         et en connectant la calculatrice
 avec un cable USB-C vers USB-C (pour les N0120/N0115) ou

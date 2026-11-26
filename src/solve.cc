@@ -287,6 +287,28 @@ namespace giac {
     }
   }
 
+  // protect_sort and _solve's comprim drop an entry == to the one before, and == of two MPFR parts
+  // is is_zero of their difference (an absolute epsilon, 1e-12), so the pair 1 +- 5.7735E-16*i of
+  // csolve(x^3-3*x+2+10^-30=0,x) at Digits > 14 was one root; two complex numbers whose imaginary parts have opposite
+  // strict signs are never one root
+  static bool solve_same_root(const gen & a,const gen & b,GIAC_CONTEXT){
+    if (!(a==b))
+      return false;
+    return !(a.type==_CPLX && b.type==_CPLX && is_strictly_positive(-(*(a._CPLXptr+1))*(*(b._CPLXptr+1)),contextptr));
+  }
+
+  static void solve_comprim(vecteur & v,GIAC_CONTEXT){
+    vecteur w;
+    for (unsigned i=0;i<v.size();++i){
+      bool dup=false;
+      for (unsigned j=0;j<w.size() && !dup;++j)
+	dup=solve_same_root(w[j],v[i],contextptr);
+      if (!dup)
+	w.push_back(v[i]);
+    }
+    v=w;
+  }
+
   vecteur protect_sort(const vecteur & res,GIAC_CONTEXT){
 #ifndef NO_STDEXCEPT
     try {
@@ -296,7 +318,7 @@ namespace giac {
 	vecteur w=*tmp._VECTptr,res;
 	iterateur it=w.begin(),itend=w.end();
 	for (;it!=itend;++it){
-	  if (res.empty() || *it!=res.back())
+	  if (res.empty() || !solve_same_root(*it,res.back(),contextptr)) // was *it!=res.back()
 	    res.push_back(*it);
 	}
 	return res;
@@ -404,6 +426,86 @@ namespace giac {
     return sp;
   }
 
+  // inside solve, epsilon is 10^-Digits, and the MPFR evalf of a real root written as a rootof (the
+  // real root of a cubic with one) carries a rounding imaginary part of about that size (x^3-x-1 at Digits 40:
+  // 1.32471795724474602596090885447809734073+0.163263104280873264995657852391978566364e-39*i), so is_zero(im) dropped it as
+  // a complex root, at some Digits and not at others. With an MPFR part, sol is real when |im| is at most |sol| times ten
+  // units of its last digit; doubles keep the epsilon test.
+  static bool ckrange_nonreal(const gen & sol,GIAC_CONTEXT){
+    if (sol.type!=_CPLX)
+      return has_i(sol);
+    const gen & r=*sol._CPLXptr;
+    const gen & i=*(sol._CPLXptr+1);
+    if (r.type!=_REAL && i.type!=_REAL)
+      return !is_zero(i,contextptr);
+    if (is_exactly_zero(i))
+      return false;
+    gen ai=abs(i,contextptr);
+    gen tol=(abs(r,contextptr)+ai)*pow(gen(10),2-decimal_digits(contextptr));
+    return is_strictly_greater(ai,tol,contextptr);
+  }
+
+  // which of the three roots of a cubic with rational coefficients are real, decided exactly by the
+  // sign of disc (the cubic branch's 27a^2d^2-18abcd+4ac^3+4b^3d-b^2c^2, the negative of the usual discriminant): below 0
+  // all three, above 0 one, the candidate whose evalf has the smallest imaginary part (the other two are a conjugate pair,
+  // whose imaginary parts are equal and far from it). False when that cannot be decided (disc no rational number, or a
+  // pair no precision up to 1280 digits separates): then solve_ckrange decides by the evalf, as before.
+  // the candidates are rootofs of a degree-6 polynomial whose evalf is ill-conditioned when two roots of the cubic
+  // are close (x^3-3*x+2+10^-22, the pair 1 +- 5.77E-12*i): at Digits 12 (doubles) the pair came out as two reals near 1
+  // (0.99999997, 1.00000003) and the real root as -1.9999994, so the test did not separate them and solve gave three
+  // roots, two of them no roots; at Digits 20 and 30 the same for other terms. The candidates are now evaluated in MPFR at
+  // max(Digits,20) digits, doubled until the pair separates (at most 1280 digits), each level with Digits and epsilon
+  // put back after it; the real candidate is returned exact, so its evalf's rounding imaginary part is never judged.
+  static bool cubic_real_roots(vecteur & v,const gen & disc,GIAC_CONTEXT){
+    if (v.size()!=3 || (disc.type!=_INT_ && disc.type!=_ZINT && disc.type!=_FRAC) || is_exactly_zero(disc))
+      return false;
+    if (is_strictly_positive(-disc,contextptr))
+      return true;
+    int D=decimal_digits(contextptr);
+    double eps0=epsilon(contextptr); // proot sets the session's epsilon to its own tolerance and never puts it back
+    for (int p=D<20?20:D;p<=1280;p*=2){
+      double a[3];
+      bool ok=true;
+      for (int k=0;ok && k<3;++k){
+	gen s;
+#ifndef NO_STDEXCEPT
+	try {
+#endif
+	  set_decimal_digits(p,contextptr);
+	  s=evalf_double(abs(im(evalf(v[k],1,contextptr),contextptr),contextptr),1,contextptr);
+#ifndef NO_STDEXCEPT
+	} catch (std::runtime_error & err){
+	  last_evaled_argptr(contextptr)=NULL;
+	  set_decimal_digits(D,contextptr);
+	  epsilon(eps0,contextptr);
+	  if (ctrl_c || interrupted)
+	    throw; // an interrupt (the clock, the step budget) is no failed level
+	  s=undef;
+	}
+#endif
+	set_decimal_digits(D,contextptr);
+	epsilon(eps0,contextptr);
+	if (s.type!=_DOUBLE_ || !(s._DOUBLE_val>=0))
+	  ok=false;
+	else
+	  a[k]=s._DOUBLE_val;
+      }
+      if (!ok)
+	continue;
+      int k0=0;
+      for (int k=1;k<3;++k){
+	if (a[k]<a[k0])
+	  k0=k;
+      }
+      double a1=a[(k0+1)%3],a2=a[(k0+2)%3],amin=a1<a2?a1:a2,amax=a1<a2?a2:a1;
+      if (!(amin>0 && a[k0]<=1e-6*amin && amax-amin<=1e-6*amax))
+	continue;
+      v=vecteur(1,v[k0]);
+      return true;
+    }
+    return false;
+  }
+
   static void solve_ckrange(const identificateur & x,vecteur & v,int isolate_mode,GIAC_CONTEXT){
     vecteur w,excluded(find_excluded(x,contextptr));
     // assumption on x, either range or integer
@@ -443,8 +545,7 @@ namespace giac {
       if (m!=plus_inf && fastsign(sol-m,contextptr)==1)
 	continue;
       sol=evalf(sol,eval_level(contextptr),contextptr);
-      if (!(isolate_mode &1) && ( (sol.type==_CPLX && !is_zero(im(sol,contextptr),contextptr))
-				  || (sol.type!=_CPLX && has_i(sol))))
+      if (!(isolate_mode &1) && ckrange_nonreal(sol,contextptr))
 	continue;
       if (sol.type!=_DOUBLE_){ // check for trig solutions
 	newv.push_back(*it);
@@ -613,6 +714,103 @@ namespace giac {
 	if (j==fails && is_one(subst(successtest,x,g,false,contextptr)))
 	  res.push_back(g);
       }
+    }
+    return res;
+  }
+
+  // the cubic branch of in_solve writes the roots as rootofs of the degree-6 polynomial Q made monic, after
+  // the change of variable x -> x/q0 when Q's leading coefficient q0 is not 1; its coefficients grow with about the 12th power
+  // of the cubic's, so x^3-x-1-10^-26 (integer coefficients of 27 digits) gives one of 10^313. The evalf of such a rootof
+  // (proot of its minimal polynomial) trapped at Digits <= 14, failed with "Exponent overflow" after the trap's fix, and gave
+  // wrong digits at Digits 15 to 30 (rootof([1,0],[1,0,10^400,1]) is -1e-400). True when an integer cubic would get a monic
+  // Q with a coefficient past 2^1000 (the double range); in_solve then gives cubic_huge_roots.
+  static bool cubic_rootof_huge(const vecteur & w0){
+    if (w0.size()!=4)
+      return false;
+    for (int i=0;i<4;++i){
+      if (w0[i].type!=_INT_ && w0[i].type!=_ZINT)
+	return false;
+    }
+    gen bound=pow(plus_two,1000,context0);
+    vecteur w(w0);
+    for (int pass=0;pass<2;++pass){
+      gen alpha=w[0],beta=w[1],gamma=w[2],delta=w[3];
+      gen alpha2=alpha*alpha,alpha3=alpha2*alpha,alpha4=alpha3*alpha,beta2=beta*beta,beta3=beta2*beta,beta4=beta3*beta,delta2=delta*delta,gamma2=gamma*gamma,gamma3=gamma2*gamma;
+      vecteur Q=makevecteur(alpha4,0,6*alpha3*gamma-2*alpha2*beta2,0,9*alpha2*gamma2-6*alpha*beta2*gamma+beta4,0,27*alpha2*delta2-18*alpha*beta*delta*gamma+4*alpha*gamma3+4*beta3*delta-beta2*gamma2);
+      gen tmp=lgcd(Q);
+      divvecteur(Q,tmp,Q);
+      gen q0=Q.front();
+      if (is_one(q0*q0*q0*q0)){ // monic (up to a unit): these are the rootofs' coefficients
+	for (int i=0;i<int(Q.size());++i){
+	  if (is_greater(abs(Q[i],context0),bound,context0))
+	    return true;
+	}
+	return false;
+      }
+      w=makevecteur(alpha,beta*q0,gamma*q0*q0,delta*q0*q0*q0); // in_solve's e1=subst(e,x,x/q0), times q0^3
+      tmp=lgcd(w);
+      divvecteur(w,tmp,w);
+    }
+    return false;
+  }
+
+  // the roots of such a cubic (coefficient list c, exact) by exact isolation: the real ones by realroot
+  // to 10^-(Digits+3), so each has Digits right digits (as a double at Digits <= 14); in complex mode also the non-real ones,
+  // the centres of complexroot's boxes to 10^-(2*Digits+20) whose imaginary parts have one strict sign (a box across the real
+  // axis holds a real root, which realroot gave). Giac's path for a polynomial with no closed form takes proot of the
+  // coefficients' evalf, which drops a 10^-30 term at Digits 12 (csolve(x^3-3*x+2+10^-30=0,x) gave 1 +- 3.9E-8*i, mpmath
+  // 1 +- 5.7735E-16*i), and realroot to epsilon (1e-12), which leaves digits past the 12th wrong at Digits 40.
+  static vecteur cubic_huge_roots(const gen & c,bool complexmode,GIAC_CONTEXT){
+    int D=decimal_digits(contextptr);
+    gen eps=inv(pow(gen(10),D+3),contextptr);
+    gen r=_realroot(gen(makevecteur(c,eps,at_evalf),_SEQ__VECT),contextptr);
+    vecteur res;
+    if (r.type==_VECT)
+      res=*r._VECTptr;
+    if (!complexmode)
+      return res;
+    gen b=_complexroot(gen(makevecteur(c,inv(pow(gen(10),2*D+20),contextptr)),_SEQ__VECT),contextptr);
+    if (b.type!=_VECT)
+      return res;
+    for (int k=0;k<int(b._VECTptr->size());++k){
+      gen it=(*b._VECTptr)[k];
+      if (it.type!=_VECT || it._VECTptr->size()!=2 || it._VECTptr->front().type!=_VECT || it._VECTptr->front()._VECTptr->size()!=2)
+	continue;
+      gen lo=it._VECTptr->front()._VECTptr->front(),hi=it._VECTptr->front()._VECTptr->back();
+      gen il=im(lo,contextptr),ih=im(hi,contextptr);
+      if (!(is_strictly_positive(il,contextptr) && is_strictly_positive(ih,contextptr)) && !(is_strictly_positive(-il,contextptr) && is_strictly_positive(-ih,contextptr)))
+	continue;
+      // the centre by parts: Giac's sum of two complex doubles drops an imaginary part below epsilon times the real one
+      // (lo+hi of 1-5.7735E-16*i is 2.0), which made the pair of x^3-3*x+2+10^-30 two real 1s, merged by solve
+      gen zr=evalf((re(lo,contextptr)+re(hi,contextptr))/2,1,contextptr),zi=evalf((il+ih)/2,1,contextptr);
+      gen z=gen(zr,zi);
+      if (D>14 && c.type==_VECT){
+	// complexroot's boxes are doubles (16 digits): Newton on the exact coefficients at 2*Digits+40 digits from the centre;
+	// kept when it converges on the centre's side of the real axis (a real cubic has one non-real root on each side),
+	// else the double centre stays
+	int nbits=digits2bits(2*D+40);
+	const vecteur & cv=*c._VECTptr;
+	vecteur dcv=derivative(cv);
+	gen t=gen(accurate_evalf(zr,nbits),accurate_evalf(zi,nbits)),tol=accurate_evalf(pow(gen(10),-(D+20),contextptr),nbits);
+	bool conv=false;
+	for (int iter=0;iter<60;++iter){
+	  gen den=horner(dcv,t);
+	  if (is_exactly_zero(den))
+	    break;
+	  gen step=horner(cv,t)/den;
+	  t=t-step;
+	  if (is_greater(abs(t,contextptr)*tol,abs(step,contextptr),contextptr)){
+	    conv=true;
+	    break;
+	  }
+	}
+	gen ti=im(t,contextptr);
+	if (conv && is_strictly_positive(ti*zi,contextptr))
+	  z=accurate_evalf(t,digits2bits(D));
+      }
+      int m=it._VECTptr->back().type==_INT_?it._VECTptr->back().val:1;
+      for (int j=0;j<m;++j)
+	res.push_back(z);
     }
     return res;
   }
@@ -982,6 +1180,12 @@ namespace giac {
 	return;
       }
       int n=is_cyclotomic(w,epsilon(contextptr));
+      if (!n && d==3 && lv_.size()==1 && cubic_rootof_huge(w)){
+	newv=cubic_huge_roots(r2sym(w,lv,contextptr),complexmode,contextptr);
+	solve_ckrange(x,newv,isolate_mode,contextptr);
+	v=mergevecteur(v,newv);
+	return;
+      }
       if (!n){
 	if (
 #ifdef GIAC_GGB
@@ -990,6 +1194,7 @@ namespace giac {
 	    calc_mode(contextptr)!=1 && abs_calc_mode(contextptr)!=38 && d==3 && lv_.size()==1
 	    ){
 	  gen W=r2sym(num,lv_,contextptr);
+	  gen disc0; // the exact discriminant where the candidates are R1, R2, R3 (else 0: not used)
 #if 1
 	  // ALT: alpha*x^3+beta*x^2+gamma*x+delta
 	  /*
@@ -1036,6 +1241,7 @@ namespace giac {
 	    newv=solve(F,x,isolate_mode,contextptr);
 	  }
 	  else {
+	    disc0=r2sym(discriminant,lv,contextptr);
 	    vecteur Q=makevecteur(alpha4,0,6*alpha3*gamma-2*alpha2*beta2,0,9*alpha2*gamma2-6*alpha*beta2*gamma+beta4,0,27*alpha2*delta2-18*alpha*beta*delta*gamma+4*alpha*gamma3+4*beta3*delta-beta2*gamma2);
 	    gen tmp=lgcd(Q);
 	    divvecteur(Q,tmp,Q);
@@ -1056,7 +1262,10 @@ namespace giac {
 	      in_solve(e1,x,newv,isolate_mode,contextptr);
 	      isolate_mode = is;
 	      multvecteur(inv(q0,contextptr),newv,newv);
-	      solve_ckrange(x,newv,isolate_mode,contextptr);
+	      if (!(isolate_mode & 1) && cubic_real_roots(newv,disc0,contextptr))
+		solve_ckrange(x,newv,isolate_mode | 1,contextptr); // newv holds the real roots only: the range is checked
+	      else
+		solve_ckrange(x,newv,isolate_mode,contextptr);
 	      v=mergevecteur(v,newv);
 	      return;
 	    }
@@ -1092,15 +1301,19 @@ namespace giac {
 #endif
 	  withsqrt(b,contextptr);
 	  complex_mode(bc,contextptr);
-	  if ((isolate_mode & 16)==0)
-	    solve_ckrange(x,newv,isolate_mode,contextptr);
+	  if ((isolate_mode & 16)==0){
+	    if (!(isolate_mode & 1) && cubic_real_roots(newv,disc0,contextptr))
+	      solve_ckrange(x,newv,isolate_mode | 1,contextptr); // newv holds the real roots only: the range is checked
+	    else
+	      solve_ckrange(x,newv,isolate_mode,contextptr);
+	  }
 	  v=mergevecteur(v,newv);
 	  return ;
 	}
 	if (debug_infolevel) // abs_calc_mode(contextptr)!=38)
 	  *logptr(contextptr) << gettext("Warning! Algebraic extension not implemented yet for poly ") << r2sym(w,lv,contextptr) << '\n';
 	gen w_orig;
-	w=*evalf((w_orig=r2sym(w,lv,contextptr)),1,contextptr)._VECTptr;
+	w=gen2vecteur(evalf((w_orig=r2sym(w,lv,contextptr)),1,contextptr));
 	if (has_num_coeff(w)){ // FIXME: test is always true...
 #ifndef NO_STDEXCEPT
 	  try {
@@ -1298,7 +1511,9 @@ namespace giac {
       }
       if (has_op(testval,*at_rootof)){
 	testval=evalf_double(testval,1,contextptr);
-	if (testval.type==_CPLX && is_zero(*(testval._CPLXptr+1),contextptr))
+	// l and m are real (roots of the equation, ends of the range), so an imaginary part of the
+	// double evalf is rounding; epsilon inside solve is 10^-Digits, which a double's rounding exceeds at Digits > 15
+	if (testval.type==_CPLX && (is_zero(*(testval._CPLXptr+1),contextptr) || (testval._CPLXptr->type==_DOUBLE_ && (testval._CPLXptr+1)->type==_DOUBLE_ && std::abs((testval._CPLXptr+1)->_DOUBLE_val)<=1e-10*(1+std::abs(testval._CPLXptr->_DOUBLE_val)))))
 	  testval=*testval._CPLXptr;
       }
       gen test=eval(subst(e0,x,testval,false,contextptr),eval_level(contextptr),contextptr);
@@ -1309,7 +1524,7 @@ namespace giac {
 	a=a-b;
 	gen testnum=subst(a,x,evalf(testval,1,contextptr),false,contextptr);
 	if (testnum.type==_CPLX){
-	  if (l!=prevm && !is_inf(l) && !equalposcomp(singu,l)){
+	  if (l!=prevm && !is_inf(l) && !equalposcomp(singu,l) && ((direction %2) || !equalposcomp(veq_not_singu,l))){ // a root of the equation never solves a strict inequality
 	    // maybe add l
 	    gen test=eval(subst(e0,x,l,false,contextptr),eval_level(contextptr),contextptr);
 	    if (test==1)
@@ -1339,7 +1554,7 @@ namespace giac {
 	  if (!has_i(a))
 	    add_eq.push_back(l);
 	}
-	if (l!=prevm && !is_inf(l) && !equalposcomp(singu,l)){
+	if (l!=prevm && !is_inf(l) && !equalposcomp(singu,l) && ((direction %2) || !equalposcomp(veq_not_singu,l))){ // a root of the equation never solves a strict inequality
 	  // maybe add l
 	  gen test=eval(subst(e0,x,l,false,contextptr),eval_level(contextptr),contextptr);
 	  if (test==1)
@@ -1370,6 +1585,8 @@ namespace giac {
 	if (lfd>1)
 	  eps=lfd*eps;
       }
+      if (testeq.type==_REAL)
+	eps*=1e4; // an MPFR value of e at a root is rounding noise of up to some 100 units of 10^-Digits
       // 22 feb 2018: revert change ... || test!=1 to && test!=1 made for solve(abs(x^2)=abs(x)^2)
       if ((is_greater(eps,testeq,contextptr) || test!=1) &&
 	  (equalposcomp(excluded_not_singu,l) || equalposcomp(singu,l) ||
@@ -1405,6 +1622,8 @@ namespace giac {
 	if (lfd>1)
 	  eps=lfd*eps;
       }
+      if (testeq.type==_REAL)
+	eps*=1e4; // as at l
       if ( (is_greater(eps,testeq,contextptr) || test!=1) &&
 	  (equalposcomp(excluded_not_singu,m) || equalposcomp(singu,m) ||
 	   ( !(direction %2) && equalposcomp(veq_not_singu,m)) )
@@ -3285,7 +3504,7 @@ namespace giac {
     gen res=_solve_uncompressed(args,postprocess,contextptr);
     if (res.type==_VECT){
       vecteur v=*res._VECTptr;
-      comprim(v);
+      solve_comprim(v,contextptr); // was comprim(v)
       res=gen(v,res.subtype);
     }
     return res;
@@ -4026,13 +4245,60 @@ namespace giac {
 #endif // HAVE_LIBGSL
 
   // fsolve(expr,var[,interval/guess,method])
+  // the names fsolve's variable argument binds (x, x=guess, [x,y], [x=1,y=2]), and what a guess reads.
+  static void fsolve_names(const gen & g,vecteur & names,vecteur & read){
+    if (g.type==_IDNT)
+      names.push_back(g);
+    else if (g.is_symb_of_sommet(at_equal) && g._SYMBptr->feuille.type==_VECT && g._SYMBptr->feuille._VECTptr->size()==2){
+      fsolve_names(g._SYMBptr->feuille._VECTptr->front(),names,read);
+      read=mergevecteur(read,lidnt(g._SYMBptr->feuille._VECTptr->back()));
+    }
+    else if (g.type==_VECT){
+      for (size_t i=0;i<g._VECTptr->size();++i)
+	fsolve_names((*g._VECTptr)[i],names,read);
+    }
+  }
+  static void fsolve_restore(const vecteur & names,const vecteur & held,GIAC_CONTEXT){
+    for (size_t i=0;i<held.size();++i){
+      if (held[i]!=names[i])
+	sto(held[i],names[i],contextptr);
+    }
+  }
   gen _fsolve(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (calc_mode(contextptr)==1 && args.type!=_VECT)
       return _fsolve(makesequence(args,ggb_var(args)),contextptr);
-    vecteur v(plotpreprocess(args,contextptr));
+    // the variables of fsolve are fresh names whatever they hold (as in int, intg.cc): in_fsolve
+    // evalf's the names of its equation, and a name holding BesselJ(1,2) at 40 digits failed with Bad Argument Value.
+    vecteur names,held;
+    if (args.type==_VECT && args.subtype==_SEQ__VECT && args._VECTptr->size()>=2){
+      vecteur read;
+      fsolve_names((*args._VECTptr)[1],names,read);
+      for (size_t i=2;i<args._VECTptr->size();++i)
+	read=mergevecteur(read,lidnt((*args._VECTptr)[i]));
+      for (size_t i=0;i<names.size();++i){
+	gen xval=assumeeval(names[i],contextptr);
+	if (xval==names[i] || equalposcomp(read,names[i]) || (xval.type==_VECT && xval.subtype==_ASSUME__VECT))
+	  xval=names[i];
+	else
+	  purgenoassume(names[i],contextptr);
+	held.push_back(xval);
+      }
+    }
+    vecteur v;
     gen res=undef;
-    res=in_fsolve(v,contextptr);
+#ifndef NO_STDEXCEPT
+    try {
+#endif
+      v=plotpreprocess(args,contextptr);
+      res=in_fsolve(v,contextptr);
+#ifndef NO_STDEXCEPT
+    } catch (std::runtime_error & err){
+      fsolve_restore(names,held,contextptr);
+      throw;
+    }
+#endif
+    fsolve_restore(names,held,contextptr);
     if (calc_mode(contextptr)!=1)
       return res;
     // ggb always in a list
@@ -4307,7 +4573,7 @@ namespace giac {
     }
     if (v0.type==_VECT){
       if ( (v[1].type==_VECT && v0._VECTptr->size()!=v[1]._VECTptr->size())
-	   || (v[1].type!=_VECT && v[1]._VECTptr->size()!=1))
+	   || (v[1].type!=_VECT && v0._VECTptr->size()!=1))
 	return gendimerr(contextptr);
     }
     // check method
@@ -5992,7 +6258,7 @@ namespace giac {
 #endif
 	  if (ctrl_c || interrupted) { 
 	    interrupted = true; ctrl_c=false;
-	    return gensizeerr(gettext("Stopped by user interruption.")); 
+	    return gen_oom(); // gensizeerr(gettext("Stopped by user interruption.")); 
 	  }
 	  d=subst(invdf,x,a,false,contextptr);
 	  // of << k << " " << d << " " << invdf << " " << x << " " << a << " ";
@@ -6074,7 +6340,7 @@ namespace giac {
 #endif
 	  if (ctrl_c || interrupted) { 
 	    interrupted = true; ctrl_c=false;
-	    return gensizeerr(gettext("Stopped by user interruption.")); 
+	    return gen_oom(); // gensizeerr(gettext("Stopped by user interruption.")); 
 	  }
 	  if (inv_after)
 	    d=linsolve(evalf(subst(invdf,x,a,false,contextptr),1,contextptr),-subst(f,x,a,false,contextptr),contextptr);
@@ -8067,7 +8333,7 @@ namespace giac {
     bool convertapprox=has_num_coeff(eq);
     gen eqs=eq;
     if (convertapprox)
-      eq=*exact(evalf(eq,1,contextptr),contextptr)._VECTptr;
+      eq=gen2vecteur(exact(evalf(eq,1,contextptr),contextptr));
     // check rational
     int varn=0;
     for (it=var.begin();it!=itend;++it,++varn){

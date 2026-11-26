@@ -6,6 +6,15 @@
 #include "os.h"
 #endif
 #include "index.h"
+
+#ifdef HPG1
+extern "C" void Printf(const char *fmt, ...);
+extern "C" void OSSleep(int);
+extern "C" void loopsleep(int);
+extern "C" void rgbSetColor(unsigned);
+extern "C" void rgbSetBkColor(unsigned);
+#endif
+
 /*
  *  Copyright (C) 2000,2014 B. Parisse, Institut Fourier, 38402 St Martin d'Heres
  *
