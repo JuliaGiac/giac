@@ -1276,7 +1276,7 @@ void vars_arrangements(matrice J,ipdiff::ivectors &arrs,GIAC_CONTEXT) {
     vector<ulong> sets(comb(n,m).val);
     int i=0;
     for (ulong k=1;k<N;++k) {
-        bitset<32> b(k);
+        std::bitset<32> b(k); // std:: because PARI 2.19 declares a C function bitset()
         if (b.count()==(size_t)m)
             sets[i++]=k;
     }
