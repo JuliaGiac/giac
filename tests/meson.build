@@ -29,3 +29,14 @@ test_series_flags = executable('test_series_flags',
 )
 
 test('series_flags', test_series_flags, suite: 'unit', timeout: 60)
+
+# Regression test: the same integral must be right on every call (CASbench
+# case F 14, wrong from the second call on with GIAC_TYPE_ON_8BITS)
+test_integrate_repeat = executable('test_integrate_repeat',
+  'test_integrate_repeat.cc',
+  include_directories: [giac_inc, config_inc],
+  dependencies: test_deps,
+  cpp_args: giac_common_args,
+)
+
+test('integrate_repeat', test_integrate_repeat, suite: 'unit', timeout: 60)
