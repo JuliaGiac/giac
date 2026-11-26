@@ -298,6 +298,43 @@ namespace giac {
     double eps=std::pow(0.1,n);
     int rprec=int(n*3.3);
     vecteur a=proot(v,eps,rprec,contextptr);
+    // with a coefficient ratio past the double range proot's eps is clamped (vecteur.cc balance,
+    // in_proot), and its roots are right at some Digits and not at others (evalf(rootof([1,0],[1,0,10^400,1])) was
+    // 1.27E392 at Digits 15 and 3.1E385 at 30, right -1E-400): each root must satisfy v, |v(z)| <= deg*10^(4-n)*sum|v_i||z|^i
+    // (a backward error of about 10^-n for a root right to n digits; a wrong root gives a ratio near 1), else an error
+    if (!a.empty() && !is_undef(a) && !is_exactly_zero(v.front())){
+      bool past=false;
+      gen v0=abs(v.front(),contextptr);
+      for (int i=1;i<int(v.size()) && !past;++i){
+	if (is_exactly_zero(v[i]))
+	  continue;
+	gen d=evalf_double(abs(v[i],contextptr)/v0,1,contextptr);
+	past=d.type!=_DOUBLE_ || !(d._DOUBLE_val<=1.7976931348623157e308);
+      }
+      if (past){
+	int bits=digits2bits(n)+64,deg=int(v.size())-1;
+	vecteur va=accurate_evalf(v,bits),vabs(va.size());
+	for (int i=0;i<int(va.size());++i)
+	  vabs[i]=abs(va[i],contextptr);
+	gen tol=gen(deg)*pow(gen(10),4-n,contextptr);
+	for (int k=0;k<int(a.size());++k){
+	  gen z=accurate_evalf(a[k],bits);
+	  gen num=abs(horner(va,z),contextptr),S=horner(vabs,abs(z,contextptr));
+	  // and as many roots as the degree (at Digits 60 proot gave six for [1,0,10^400,1], a 0 and -1E-400 twice among them)
+	  if (int(a.size())!=deg || !is_greater(S*tol,num,contextptr)){
+	    // proot cached these roots with the clamped eps (2.2E-308), so every later proot of v (at any Digits, the exact
+	    // [1,0,10^400,1] too: the key compares values) would return them: drop them
+	    if (!rootof_trylock()){
+	      rootmap::iterator rit=proot_list().find(v);
+	      if (rit!=proot_list().end())
+		proot_list().erase(rit);
+	      rootof_unlock();
+	    }
+	    return gensizeerr(gettext("rootof: the roots found do not satisfy a polynomial whose coefficients pass the double range"));
+	  }
+	}
+      }
+    }
     gen r=in_select_root(a,is_real(v,contextptr),contextptr);
     return r;
   }
@@ -561,7 +598,7 @@ namespace giac {
       }
     }
     if (k_init){
-      vecteur v1=*evalf_double(va,1,contextptr)._VECTptr;
+      vecteur v1=gen2vecteur(evalf_double(va,1,contextptr));
       if (is_fully_numeric(v1)){
 	// when theta2 depends on theta1, theta1+k*theta2 is not necessarily
 	// the largest root, because the numeric value of v2 depends
@@ -678,7 +715,9 @@ namespace giac {
       m.clear();
       vecteur ligne;
       for (int j=0;j<=na*nb;++j){
-	if (!polynome2vecteur(p,na,nb,ligne))
+        if (ctrl_c || interrupted)
+	  return gen_oom();//gensizeerr(contextptr);
+        if (!polynome2vecteur(p,na,nb,ligne))
 	  return gensizeerr(gettext("alg_ext.cc/polynome2vecteur"));
 	// ligne.push_back(pow(theta,j));
 	m.push_back(ligne);
@@ -715,6 +754,8 @@ namespace giac {
 	return gensizeerr(contextptr);
       }
       step_infolevel(contextptr)=st;
+      if (ctrl_c || interrupted || m_red.size()<unsigned(na*nb) || m_red[na*nb-1].type!=_VECT)
+	return gen_oom();//gensizeerr(contextptr);
       m=m_red;
       // the reduced matrix m should have the form
       // * 0      ... 0 * * *
@@ -1097,7 +1138,7 @@ namespace giac {
       else {
         gen tmp=evalf(b__VECT,1,contextptr);
         if (is_undef(tmp)) return gensizeerr(contextptr);
-	racines=proot(*tmp._VECTptr,contextptr); // evalf to avoid recursion if computing exact roots of b__VECT
+	racines=proot(gen2vecteur(tmp),contextptr); // evalf to avoid recursion if computing exact roots of b__VECT
       }
       if (is_undef(racines)) return gensizeerr(contextptr);
       // racines= list of approx roots if b__VECT is numeric

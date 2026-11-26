@@ -1367,6 +1367,7 @@ class Numworks {
      * @return  an object representing the platforminfo.
      */
   async getPlatformInfo() {
+    console.log('getplatforminfo, transferSize',this.transferSize);
     let tab=[0x90000000,0x90170000,0x90180000,0x901b0000,0x90400000],res;
     for (let j=0;j<tab.length;j++){
       this.device.startAddress = tab[j];
@@ -1405,6 +1406,14 @@ class Numworks {
 	  console.log('getplatfrominfo 3 at',tab[j].toString(16),dvb,dvb.getUint32(0x0,false).toString(16),'transfertsize',dvb.getUint32(0x4,false).toString(16),dvb.getUint32(0x8,false).toString(16),'startaddress',dvb.getUint32(0xc,false).toString(16));
 	}
 	this.device.startAddress=dvb.getUint32(0xc, true)
+        // FIX for N0120 / Epsilon 26:
+        // Do not attempt DFU upload from RAM (0x24000000+) because the DFU stack stalls.
+        if (this.device.startAddress >= 0x20000000 || dvb.getUint32(0, false) === 0xfeedc0de) {
+          res = this.__parsePlatformInfo(blobb, false);
+          res["bootloader"] = 1;
+          return res;
+        }
+        
 	const blob2 = await this.device.do_upload(this.transferSize, 0x4);
 	const blobb2 = await blob2.arrayBuffer();
 	let dv2b=new DataView(blobb2);
@@ -1446,7 +1455,7 @@ class Numworks {
     }
     else {
       this.device.startAddress = 0x90000000;
-      L=0x180000;
+      L=0x300000;
     }
     this.device.logProgress(0,'Get external');
     const blob = await this.device.do_upload(this.transferSize,L);
@@ -1960,15 +1969,16 @@ DFUse.Device = class extends DFU.Device {
       return 1;
     }
   
-    async do_upload(xfer_size, max_size) {
-        let startAddress = this.startAddress;
+  async do_upload(xfer_size, max_size, check=true) {
+    let startAddress = this.startAddress;
+    if (check){
         if (isNaN(startAddress)) {
             startAddress = this.memoryInfo.segments[0].start;
             this.logWarning("Using inferred start address 0x" + startAddress.toString(16));
         } else if (this.getSegment(startAddress) === null) {
             this.logWarning(`Start address 0x${startAddress.toString(16)} outside of memory map bounds`);
         }
-
+    }
         this.logInfo(`Reading up to 0x${max_size.toString(16)} bytes starting at 0x${startAddress.toString(16)}`);
         let state = await this.getState();
         if (state !== DFU.dfuIDLE) {

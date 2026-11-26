@@ -1,6 +1,6 @@
-giac (2.0.0-21) stable; urgency=low
+giac (2.1.0-2) stable; urgency=low
   * New upstream version.
- -- B. Parisse from Carleos Artime <carleos@pinon.ccu.uniovi.es>  Tue, 24 Feb 2026 08:52:40 +0100
+ -- B. Parisse from Carleos Artime <carleos@pinon.ccu.uniovi.es>  Tue, 24 Nov 2026 08:52:40 +0100
 
 giac (1.0.0-1) stable; urgency=low
   * New upstream version.

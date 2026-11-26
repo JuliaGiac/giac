@@ -17,23 +17,8 @@ Added 0 synonyms
 // Time 0
 // Time 0
 
-Evaluation time: 15.27
-// Time 15.27
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0.01
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
+Evaluation time: 16.72
+// Time 16.72
 // Time 0
 // Time 0
 // Time 0
@@ -45,6 +30,9 @@ Evaluation time: 15.27
 // Time 0
 // Time 0
 // Time 0.01
+// Time 0
+// Time 0
+// Time 0
 // Time 0
 // Time 0
 // Time 0
@@ -71,7 +59,19 @@ Evaluation time: 15.27
 // Time 0.01
 // Time 0
 // Time 0
+// Time 0
+// Time 0
 // Time 0.01
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0.01
+// Time 0
+// Time 0
+// Time 0
 // Time 0
 // Time 0
 // Time 0
@@ -86,5 +86,5 @@ Evaluation time: 15.27
 // Time 0
 // Time 0.02
 // Time 0
-// Total time 15.35
+// Total time 16.8
 PASS chk_fhan9 (exit status: 0)

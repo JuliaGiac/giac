@@ -1,3 +1,17 @@
+# dir
+1 Liste de commandes commençant par
+2 List of commands beginning with
+0 Strng || Idnt
+-1 help
+dir(a)
+
+# help
+1 Aide sur la commande
+2 Help on command
+0 Fnc || Strng
+-1 dir
+help("factor")
+
 # znorder
 1 Renvoie 0 ou l'ordre de k dans (Z/nZ^*,*)
 2 Returns 0 or the order of k in (Z/nZ^*,*)
@@ -15921,9 +15935,9 @@ eval_level(1)
  purge(a,b,c);eval_level(3);a:=b+1; b:=c+1;c:=3;
 
 # eliminate
-1 Élimine les variables vars dans une liste d'équations algébriques.
-2 Eliminates the variables vars in a list of algebraic equations.
-0 LstEq(eqs),LstVar(vars)
+1 Élimine les variables vars dans une liste d'équations algébriques. L'argument optionnel nonelim permet de spécifier l'ordre à utiliser pour les variables restantes (non éliminées) dans le calcul de bases de Groebner, sinon cet ordre est déterminé par un algorithme heuristique.
+2 Eliminates the variables vars in a list of algebraic equations. The optionnal argument nonelim may be used to specify the order to use for non eliminated variables in Groebner basis computations, otherwise it is determined by an heuristic algorithm.
+0 LstEq(eqs),LstVar(vars),[LstVars(nonelim)]
 eliminate([x=v0*t,y=y0-g*t^2],t)
 eliminate([x+y+z+t-2,x*y*t=1,x^2+t^2=z^2],[x,z])
 
@@ -18805,3 +18819,387 @@ ecef2geodetic(4293457.10728,1360697.85689,4501106.55299)
 0 Expr(f),Real(dt)
 fork_timeout(factor(x^200+1,i),0.5)
 fork_timeout(factor(x^200+1,i),0.1)
+
+# cov_matrix
+1 Renvoie la matrice de covariance (p×p) d'une matrice de données X (n×p)
+2 Returns the covariance matrix (p×p) of a data matrix X (n×p)
+0 Mtrx
+-1 pca_eigenvalues
+-2 pca_V
+-3 covariance
+cov_matrix([[1,2],[3,4],[5,6]])
+
+# pca_eigenvalues
+1 Renvoie la liste des valeurs propres de la matrice de covariance, triées par ordre décroissant
+2 Returns the list of eigenvalues of the covariance matrix, sorted in decreasing order
+0 Mtrx
+-1 cov_matrix
+-2 pca_explained_ratio
+-3 eigenvals
+pca_eigenvalues([[2,1,1],[1,2,1],[1,1,2]])
+
+# pca_explained_ratio
+1 Renvoie la liste des ratios de variance expliquée par chaque composante principale, à partir d'un vecteur de valeurs propres triées
+2 Returns the list of variance ratios explained by each principal component, from a sorted eigenvalue vector
+0 Lst
+-1 pca_eigenvalues
+-2 pca_select_q
+-3 pca
+pca_explained_ratio([6,4,1])
+
+# pca_V
+1 Renvoie la matrice orthogonale V (p×p) dont les colonnes sont les vecteurs propres de la matrice de covariance, ordonnés par valeur propre décroissante
+2 Returns the orthogonal matrix V (p×p) whose columns are the eigenvectors of the covariance matrix, ordered by decreasing eigenvalue
+0 Mtrx
+-1 cov_matrix
+-2 pca_loadings
+-3 eigenvects
+pca_V([[2,1,1],[1,2,1],[1,1,2]])
+
+# pca_loadings
+1 Renvoie la matrice de chargements W (p×q) formée des q premiers vecteurs propres de la matrice de covariance. Si q est omis, renvoie V entière
+2 Returns the loadings matrix W (p×q) made of the q first eigenvectors of the covariance matrix. If q is omitted, returns the full V matrix
+0 Mtrx,[INT]
+-1 pca_V
+-2 pca_scores
+-3 pca
+pca_loadings([[2,1,1],[1,2,1],[1,1,2]])
+pca_loadings([[2,1,1],[1,2,1],[1,1,2]],2)
+
+# pca_scores
+1 Renvoie la matrice des scores Z (n×q) en projetant la matrice de données X (n×p) centrée sur les q premières composantes principales
+2 Returns the score matrix Z (n×q) by projecting the centered data matrix X (n×p) onto the q first principal components
+0 Mtrx,INT
+-1 pca_loadings
+-2 pca
+-3 cov_matrix
+pca_scores([[1,2,3],[4,5,6],[7,8,9]],2)
+
+# pca_select_q
+1 Renvoie le plus petit entier q tel que les q premières composantes principales expliquent au moins la proportion demandée de la variance totale (seuil entre 0 et 1)
+2 Returns the smallest integer q such that the q first principal components explain at least the requested proportion of total variance (threshold between 0 and 1)
+0 Mtrx,REAL
+-1 pca_explained_ratio
+-2 pca
+-3 pca_eigenvalues
+pca_select_q([[2,1,1],[1,2,1],[1,1,2]],0.9)
+pca_select_q([[2,1,1],[1,2,1],[1,1,2]],0.95)
+
+# pca
+1 Fonction façade ACP : à partir d'une matrice de données X (n×p) et d'un seuil de variance expliquée (entre 0 et 1), sélectionne automatiquement q puis retourne [Z, q, cumul] où Z est la matrice des scores (n×q), q le nombre de composantes retenues, et cumul le vecteur des ratios de variance cumulée
+2 PCA facade function: given a data matrix X (n×p) and a variance threshold (between 0 and 1), automatically selects q and returns [Z, q, cumul] where Z is the score matrix (n×q), q the number of retained components, and cumul the vector of cumulative variance ratios
+0 Mtrx,REAL
+-1 pca_scores
+-2 pca_select_q
+-3 cov_matrix
+pca([[2,1,3],[4,2,1],[1,3,2],[3,1,4]],0.90)
+pca([[1,2],[3,4],[5,6]],0.99)
+
+# mlr_beta
+1 Renvoie le vecteur des p+1 coefficients beta_hat = (beta_0, beta_1, ..., beta_p) estimés par moindres carrés ordinaires : beta_hat = inv(tran(X)*X)*tran(X)*y. Si use_qr=1, utilise la décomposition QR réduite. Retourne une erreur si tran(X)*X est singulière (multicolinéarité)
+2 Returns the vector of p+1 coefficients beta_hat = (beta_0, beta_1, ..., beta_p) estimated by ordinary least squares: beta_hat = inv(tran(X)*X)*tran(X)*y. If use_qr=1, uses the reduced QR decomposition. Returns an error if tran(X)*X is singular (multicollinearity)
+0 Mtrx,Lst,[INT]
+-1 mlr
+-2 mlr_predict
+-3 linear_regression
+mlr_beta([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_beta([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr_predict
+1 Renvoie le vecteur des valeurs prédites y_hat = X_aug · beta_hat à partir de la matrice X et du vecteur beta_hat retourné par mlr_beta
+2 Returns the vector of predicted values y_hat = X_aug · beta_hat from the data matrix X and the coefficient vector beta_hat returned by mlr_beta
+0 Mtrx,Lst
+-1 mlr_beta
+-2 mlr_residuals
+-3 mlr
+mlr_predict([[1],[2],[3],[4],[5]],[0.05,1.99])
+mlr_predict([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[1.0,1.5,0.5])
+
+# mlr_residuals
+1 Renvoie le vecteur des résidus e = y - y_hat. Si use_qr=1, beta_hat est calculé via décomposition QR
+2 Returns the vector of residuals e = y - y_hat. If use_qr=1, beta_hat is computed via QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_predict
+-2 mlr_r2
+-3 mlr
+mlr_residuals([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_residuals([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr_r2
+1 Renvoie le coefficient de détermination R2 = 1 - SS_res/SS_tot dans [0,1], où SS_res = sum((y_i - y_hat_i)²) et SS_tot = sum((y_i - y_bar)²). Si use_qr=1, beta_hat est calculé via décomposition QR
+2 Returns the coefficient of determination R2 = 1 - SS_res/SS_tot in [0,1], where SS_res = sum((y_i - y_hat_i)²) and SS_tot = sum((y_i - y_bar)²). If use_qr=1, beta_hat is computed via QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_sigma2
+-2 mlr_mse
+-3 mlr
+mlr_r2([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_r2([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr_sigma2
+1 Renvoie la variance résiduelle sans biais sigma_hat2 = SS_res/(n-p-1), estimateur de la variance du bruit sigma². Si use_qr=1, beta_hat est calculé via décomposition QR
+2 Returns the unbiased residual variance sigma_hat2 = SS_res/(n-p-1), an estimator of the noise variance sigma². If use_qr=1, beta_hat is computed via QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_mse
+-2 mlr_r2
+-3 mlr_ic
+mlr_sigma2([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_sigma2([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr_mse
+1 Renvoie l'erreur quadratique moyenne MSE = SS_res/n (biaisée, sans correction de degrés de liberté). Si use_qr=1, beta_hat est calculé via décomposition QR
+2 Returns the mean squared error MSE = SS_res/n (biased, without degrees of freedom correction). If use_qr=1, beta_hat is computed via QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_sigma2
+-2 mlr_r2
+-3 mlr
+mlr_mse([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_mse([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr_ic
+1 Renvoie la matrice (p+1)×2 des intervalles de confiance à 95% sur chaque beta_i via la loi de Student(n-p-1) : [beta_hat_i - t·se(beta_hat_i), beta_hat_i + t·se(beta_hat_i)] où se(beta_hat_i) = sigma_hat·sqrt(inv(tran(X)*X)[i,i]). Si use_qr=1, utilise la décomposition QR
+2 Returns the (p+1)×2 matrix of 95% confidence intervals for each beta_i via Student(n-p-1): [beta_hat_i - t·se(beta_hat_i), beta_hat_i + t·se(beta_hat_i)] where se(beta_hat_i) = sigma_hat·sqrt(inv(tran(X)*X)[i,i]). If use_qr=1, uses QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_beta
+-2 mlr_sigma2
+-3 mlr
+mlr_ic([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr_ic([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+
+# mlr
+1 Fonction façade MLR : à partir d'une matrice X (n×p) et d'un vecteur y (n×1), retourne un tableau de paires ["nom", valeur] avec : beta_0...beta_p (coefficients), y_pred (valeurs prédites), residus, R2, sigma2 (variance résiduelle sans biais), mse (erreur quadratique moyenne), IC_beta_0...IC_beta_p (intervalles de confiance à 95%). Si use_qr=1, utilise la décomposition QR réduite
+2 MLR facade function: given a data matrix X (n×p) and a response vector y (n×1), returns a table of ["name", value] pairs: beta_0...beta_p (coefficients), y_pred (predicted values), residus (residuals), R2, sigma2 (unbiased residual variance), mse (mean squared error), IC_beta_0...IC_beta_p (95% confidence intervals). If use_qr=1, uses reduced QR decomposition
+0 Mtrx,Lst,[INT]
+-1 mlr_beta
+-2 mlr_ic
+-3 linear_regression
+mlr([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])
+mlr([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1],1)
+mlr([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0])
+mlr([[1,1],[2,3],[3,2],[4,5],[5,4],[6,6]],[3.1,7.9,6.8,12.5,11.2,16.0],1)
+mlr([[1,5,2],[3,2,8],[2,8,1],[7,1,5],[4,6,3],[6,3,7],[5,4,4]],[12.1,18.3,22.5,28.7,19.4,25.6,23.2])
+mlr([[1,5,2],[3,2,8],[2,8,1],[7,1,5],[4,6,3],[6,3,7],[5,4,4]],[12.1,18.3,22.5,28.7,19.4,25.6,23.2],1)
+
+# brownian
+1 Simule un mouvement brownien standard sur [0,T] à n pas : renvoie la liste [W_0,...,W_n] avec W_0=0, ou une matrice m×(n+1) de m trajectoires indépendantes si m est fourni
+2 Simulates a standard Brownian motion on [0,T] with n steps: returns the list [W_0,...,W_n] with W_0=0, or an m×(n+1) matrix of m independent paths if m is given
+0 REAL,INT,[INT]
+-1 gbm
+-2 sde_euler
+-3 randvector
+brownian(1,250)
+brownian(1,250,10)
+
+# gbm
+1 Simule un mouvement brownien géométrique dS=mu*S*dt+sigma*S*dW (prix d'un actif risqué) par schéma exact, à partir de s0. Renvoie une trajectoire de n+1 valeurs, ou m trajectoires si m est fourni
+2 Simulates a geometric Brownian motion dS=mu*S*dt+sigma*S*dW (risky asset price) by exact scheme, starting from s0. Returns one path of n+1 values, or m paths if m is given
+0 REAL,REAL,REAL,REAL,INT,[INT]
+-1 brownian
+-2 ornstein_uhlenbeck
+-3 sde_euler
+gbm(100,0.1,0.2,1,250)
+gbm(100,0.1,0.2,1,250,10)
+
+# ornstein_uhlenbeck
+1 Simule le processus d'Ornstein-Uhlenbeck (Vasicek) dX=alpha*(theta-X)*dt+sigma*dW à retour à la moyenne theta, par schéma exact, à partir de x0. theta=0 redonne dX=-alpha*X*dt+sigma*dW
+2 Simulates the Ornstein-Uhlenbeck (Vasicek) process dX=alpha*(theta-X)*dt+sigma*dW with mean reversion to theta, by exact scheme, starting from x0. theta=0 gives dX=-alpha*X*dt+sigma*dW
+0 REAL,REAL,REAL,REAL,REAL,INT,[INT]
+-1 cir
+-2 gbm
+-3 sde_euler
+ornstein_uhlenbeck(5,0.5,2,2,20,500)
+ornstein_uhlenbeck(3,1,0,1,10,500,8)
+
+# cir
+1 Simule le modèle de Cox-Ingersoll-Ross dR=a*(b-R)*dt+sigma*sqrt(R)*dW (taux positif à retour à la moyenne b, vitesse a) par schéma d'Euler à troncature complète, à partir de x0>=0
+2 Simulates the Cox-Ingersoll-Ross model dR=a*(b-R)*dt+sigma*sqrt(R)*dW (positive mean-reverting rate to b, speed a) by full-truncation Euler scheme, starting from x0>=0
+0 REAL,REAL,REAL,REAL,REAL,INT,[INT]
+-1 ornstein_uhlenbeck
+-2 gbm
+-3 sde_milstein
+cir(0.03,1,0.04,0.1,1,250)
+cir(0.03,1,0.04,0.1,1,250,10)
+
+# sde_euler
+1 Simule par le schéma d'Euler-Maruyama l'EDS dX=b(t,x)*dt+sigma(t,x)*dW à partir de x0, où b et sigma sont des expressions en les variables libres t et x. Renvoie une trajectoire de n+1 valeurs, ou m trajectoires si m est fourni
+2 Simulates by the Euler-Maruyama scheme the SDE dX=b(t,x)*dt+sigma(t,x)*dW starting from x0, where b and sigma are expressions in the free variables t and x. Returns one path of n+1 values, or m paths if m is given
+0 Expr,Expr,REAL,REAL,INT,[INT]
+-1 sde_milstein
+-2 gbm
+-3 brownian
+sde_euler(0.1*x,0.2*x,100,1,250)
+sde_euler(0.5*(2-x),2,5,20,500)
+
+# sde_milstein
+1 Simule par le schéma de Milstein (ordre fort 1) l'EDS dX=b(t,x)*dt+sigma(t,x)*dW à partir de x0. La dérivée d(sigma)/dx du terme correctif est calculée symboliquement par derive
+2 Simulates by the Milstein scheme (strong order 1) the SDE dX=b(t,x)*dt+sigma(t,x)*dW starting from x0. The d(sigma)/dx derivative of the correction term is computed symbolically by derive
+0 Expr,Expr,REAL,REAL,INT,[INT]
+-1 sde_euler
+-2 cir
+-3 derive
+sde_milstein(0.1*x,0.2*x,100,1,250)
+sde_milstein(0.1*x,0.2*x,100,1,250,10)
+
+# bs_price
+1 Prix Black-Scholes d'une option européenne (call par défaut, "put" pour un put), sans dividende, T = temps jusqu'à maturité
+2 Black-Scholes price of a European option (call by default, "put" for a put), no dividend, T = time to maturity
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_greeks
+-2 bs_implied_vol
+-3 bs_delta
+bs_price(100,100,0.05,0.2,1)
+bs_price(100,100,0.05,0.2,1,"put")
+
+# bs_delta
+1 Delta de Black-Scholes dC/dS (sensibilité au prix du sous-jacent, nombre d'actifs à détenir pour couvrir) ; "put" pour un put
+2 Black-Scholes delta dC/dS (sensitivity to the underlying price, hedge ratio); "put" for a put
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_gamma
+-2 bs_greeks
+-3 bs_price
+bs_delta(100,100,0.05,0.2,1)
+bs_delta(100,100,0.05,0.2,1,"put")
+
+# bs_gamma
+1 Gamma de Black-Scholes d2C/dS2 (convexité, vitesse de variation du delta ; identique call et put)
+2 Black-Scholes gamma d2C/dS2 (convexity, rate of change of delta; identical for call and put)
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_delta
+-2 bs_vega
+-3 bs_greeks
+bs_gamma(100,100,0.05,0.2,1)
+
+# bs_vega
+1 Vega de Black-Scholes dC/dsigma (sensibilité à la volatilité ; identique call et put)
+2 Black-Scholes vega dC/dsigma (sensitivity to volatility; identical for call and put)
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_implied_vol
+-2 bs_greeks
+-3 bs_gamma
+bs_vega(100,100,0.05,0.2,1)
+
+# bs_theta
+1 Theta de Black-Scholes dC/dt (décroissance temporelle de la valeur) ; "put" pour un put
+2 Black-Scholes theta dC/dt (time decay of the option value); "put" for a put
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_rho
+-2 bs_greeks
+-3 bs_price
+bs_theta(100,100,0.05,0.2,1)
+bs_theta(100,100,0.05,0.2,1,"put")
+
+# bs_rho
+1 Rho de Black-Scholes dC/dr ; "put" pour un put
+2 Black-Scholes rho dC/dr (sensitivity to the interest rate); "put" for a put
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_theta
+-2 bs_greeks
+-3 bs_price
+bs_rho(100,100,0.05,0.2,1)
+bs_rho(100,100,0.05,0.2,1,"put")
+
+# bs_greeks
+1 Façade Black-Scholes : renvoie une table ["nom",valeur] du prix et des cinq Greeks (delta, gamma, vega, theta, rho)
+2 Black-Scholes facade: returns a ["name",value] table of the price and the five Greeks (delta, gamma, vega, theta, rho)
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_price
+-2 bs_delta
+-3 bs_implied_vol
+bs_greeks(100,100,0.05,0.2,1)
+bs_greeks(100,100,0.05,0.2,1,"put")
+
+# bs_implied_vol
+1 Volatilité implicite Black-Scholes : le sigma tel que le prix du modèle égale le prix donné, par méthode de Newton. Arguments : prix,S,K,r,T (sans sigma, qui est l'inconnue)
+2 Black-Scholes implied volatility: the sigma making the model price equal the given price, by Newton's method. Arguments: price,S,K,r,T (no sigma, which is the unknown)
+0 REAL,REAL,REAL,REAL,REAL,[Str]
+-1 bs_price
+-2 bs_vega
+-3 bs_greeks
+bs_implied_vol(10.4506,100,100,0.05,1)
+bs_implied_vol(5.5735,100,100,0.05,1,"put")
+
+# mc_estimate
+1 Estimation Monte-Carlo de l'espérance à partir d'une liste de réalisations [Y_1,...,Y_N] : renvoie un tableau (estimation, rayon_ic, ic_bas, ic_haut, erreur_std, n) avec l'intervalle de confiance à 95%
+2 Monte-Carlo estimate of the mean from a list of draws [Y_1,...,Y_N]: returns a table (estimation, rayon_ic, ic_bas, ic_haut, erreur_std, n) with the 95% confidence interval
+0 Vect
+-1 mc_mean
+-2 mc_bs_price
+mc_estimate([2,4,4,4,5,5,7,9])
+
+# mc_mean
+1 Estime E[g(X)] par Monte-Carlo, où X suit la loi loi(params) ; g est une expression en la variable x, N le nombre de tirages. Renvoie le tableau (estimation, IC à 95%, erreur_std, n)
+2 Monte-Carlo estimate of E[g(X)], where X follows loi(params); g is an expression in the variable x, N the number of draws. Returns the table (estimation, 95% CI, erreur_std, n)
+0 Expr,Idnt,Func,Vect,INT
+-1 mc_estimate
+-2 mc_bs_price
+mc_mean(x*x,x,normald,[0,1],100000)
+mc_mean(x*x,x,uniformd,[0,1],100000)
+
+# mc_bs_price
+1 Prix Monte-Carlo d'une option européenne (call par défaut, "put" pour un put) dans le modèle de Black-Scholes ; N tirages. Renvoie le tableau (estimation, IC à 95%, erreur_std, n) ; à comparer à bs_price
+2 Monte-Carlo price of a European option (call by default, "put" for a put) in the Black-Scholes model; N draws. Returns the table (estimation, 95% CI, erreur_std, n); compare with bs_price
+0 REAL,REAL,REAL,REAL,REAL,INT,[Str]
+-1 bs_price
+-2 mc_estimate
+-3 mc_mean
+mc_bs_price(100,100,0.05,0.2,1,100000)
+mc_bs_price(100,100,0.05,0.2,1,100000,"put")
+
+# mc_estimate
+1 Estimation Monte-Carlo de l'espérance à partir d'une liste de réalisations [Y_1,...,Y_N] : renvoie un tableau (estimation, rayon_ic, ic_bas, ic_haut, erreur_std, n) avec l'intervalle de confiance à 95%
+2 Monte-Carlo estimate of the mean from a list of draws [Y_1,...,Y_N]: returns a table (estimation, rayon_ic, ic_bas, ic_haut, erreur_std, n) with the 95% confidence interval
+0 Vect
+-1 mc_mean
+-2 mc_bs_price
+mc_estimate([2,4,4,4,5,5,7,9])
+
+# mc_mean
+1 Estime E[g(X)] par Monte-Carlo, où X suit la loi loi(params) ; g est une expression en la variable x, N le nombre de tirages. Renvoie le tableau (estimation, IC à 95%, erreur_std, n)
+2 Monte-Carlo estimate of E[g(X)], where X follows loi(params); g is an expression in the variable x, N the number of draws. Returns the table (estimation, 95% CI, erreur_std, n)
+0 Expr,Idnt,Func,Vect,INT
+-1 mc_estimate
+-2 mc_bs_price
+mc_mean(x*x,x,normald,[0,1],100000)
+mc_mean(x*x,x,uniformd,[0,1],100000)
+
+# mc_bs_price
+1 Prix Monte-Carlo d'une option européenne (call par défaut, "put" pour un put) dans le modèle de Black-Scholes ; N tirages. Renvoie le tableau (estimation, IC à 95%, erreur_std, n) ; à comparer à bs_price
+2 Monte-Carlo price of a European option (call by default, "put" for a put) in the Black-Scholes model; N draws. Returns the table (estimation, 95% CI, erreur_std, n); compare with bs_price
+0 REAL,REAL,REAL,REAL,REAL,INT,[Str]
+-1 bs_price
+-2 mc_estimate
+-3 mc_mean
+mc_bs_price(100,100,0.05,0.2,1,100000)
+mc_bs_price(100,100,0.05,0.2,1,100000,"put")
+
+# mc_mean_antithetic
+1 Estime E[g(X)] pour X ~ N(0,1) par variables antithétiques (N paires (Z,-Z), 2N évaluations) : réduit la variance quand g est monotone. g est une expression en x. Renvoie (estimation, IC à 95%, erreur_std, n=N)
+2 Monte-Carlo estimate of E[g(X)] for X ~ N(0,1) using antithetic variates (N pairs (Z,-Z), 2N evaluations): reduces variance when g is monotone. g is an expression in x. Returns (estimation, 95% CI, erreur_std, n=N)
+0 Expr,Idnt,INT
+-1 mc_mean
+-2 mc_bs_price_antithetic
+mc_mean_antithetic(exp(x),x,100000)
+
+# mc_bs_price_antithetic
+1 Prix Monte-Carlo antithétique d'une option européenne (call par défaut, "put" pour un put) : N paires (Z,-Z). IC plus serré que mc_bs_price(...,2N) à coût égal. Renvoie (estimation, IC à 95%, erreur_std, n=N)
+2 Antithetic Monte-Carlo price of a European option (call by default, "put" for a put): N pairs (Z,-Z). Tighter CI than mc_bs_price(...,2N) at equal cost. Returns (estimation, 95% CI, erreur_std, n=N)
+0 REAL,REAL,REAL,REAL,REAL,INT,[Str]
+-1 mc_bs_price
+-2 mc_mean_antithetic
+mc_bs_price_antithetic(100,100,0.05,0.2,1,100000)
+mc_bs_price_antithetic(100,100,0.05,0.2,1,100000,"put")
+
+# fit_gbm
+1 Estime les paramètres (mu, sigma) d'un mouvement brownien géométrique à partir d'une trajectoire de prix et de l'horizon T, par maximum de vraisemblance sur les log-rendements. Renvoie un tableau de lignes ["nom", estimation, ic_bas, ic_haut] (IC à 95%)
+2 Estimates the parameters (mu, sigma) of a geometric Brownian motion from a price trajectory and horizon T, by maximum likelihood on the log-returns. Returns a table of rows ["name", estimate, ic_bas, ic_haut] (95% CI)
+0 Vect,REAL
+-1 fit_ou
+-2 gbm
+fit_gbm(gbm(100,0.1,0.2,1,250),1)
+
+# fit_ou
+1 Estime les paramètres (alpha, theta, sigma) d'un processus d'Ornstein-Uhlenbeck à partir d'une trajectoire et de l'horizon T, par régression linéaire de X_{k+1} sur X_k. Renvoie un tableau de lignes ["nom", estimation, ic_bas, ic_haut] (IC à 95%)
+2 Estimates the parameters (alpha, theta, sigma) of an Ornstein-Uhlenbeck process from a trajectory and horizon T, by linear regression of X_{k+1} on X_k. Returns a table of rows ["name", estimate, ic_bas, ic_haut] (95% CI)
+0 Vect,REAL
+-1 fit_gbm
+-2 ornstein_uhlenbeck
+fit_ou(ornstein_uhlenbeck(5,2,3,0.5,10,2000),10)

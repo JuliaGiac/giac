@@ -15,33 +15,45 @@ Added 0 synonyms
 // Success
 // Success
 ============== restarted ===============
-// Time 0.01
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Time 0
-// Time 0.01
-// Time 0.29
 // Time 0
 // Time 0
 // Time 0
 // Time 0.01
-// Time 0.17
-// Time 0.16
-// Time 0.1
+// Time 0.28
+// Time 0
+// Time 0
+// Time 0.01
+// Time 0.01
 // Time 0.2
+// Time 0.22
+// Time 0.13
+// Time 0.23
 pcar OK
 // Time 0
 pcar OK
 // Time 0.01
-// Time 0.18
-// Time 0.1
+// Time 0.15
+// Time 0.08
 // Time 0
 // Time 0
-// Time 0
+// Time 0.01
 // Time 0.04
-// Time 0.05
+// Time 0.04
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -56,17 +68,5 @@ pcar OK
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Total time 1.33
+// Total time 1.43
 PASS chk_fhan6 (exit status: 0)

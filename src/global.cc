@@ -5,6 +5,7 @@
 #endif
 #include "first.h"
 #ifdef __MINGW_H
+typedef unsigned char byte;
 #include <windows.h>
 #endif
 #endif
@@ -14,6 +15,9 @@
 #include <emscripten.h>
 #endif
 
+#ifdef GIAC_SILENT
+Bidon Bidon0(0);
+#endif
 /*  
  *  Copyright (C) 2000,14 B. Parisse, Institut Fourier, 38402 St Martin d'Heres
  *
@@ -1233,9 +1237,9 @@ const int dfupos=15; // position of ...-a0 or -a1 in dfu command
 
 bool dfu_get_scriptstore_addr(size_t & start,size_t & taille,char & altdfu){
   // first try multi-boot
-  const char * slots[]={"0x90000000","0x90180000","0x90400000"};
-  const char * slots1[]={"0x90010000","0x90190000","0x90410000"};
-  const char * slots2[]={"0x90020000","0x90190000","0x90420000"};
+  const char * slots[]={"0x90000000","0x90000000","0x90180000","0x90400000"};
+  const char * slots1[]={"0x90010000","0x901b0000","0x90190000","0x90410000"};
+  const char * slots2[]={"0x90020000","0x901b0000","0x90190000","0x90420000"};
   unsigned char r[32];
   altdfu='0';
   for (int j=0;j<sizeof(slots)/sizeof(char *);++j){
@@ -1459,7 +1463,7 @@ bool dfu_get_slot(const char * fname,int slot){
     s += "0x90180000:0x80000";
     break;
   case 0:
-    s += "0x90000000:0x200000";
+    s += "0x90000000:0x300000";
     break;
   case 26:
     s += "0x90260000:0x190000";
@@ -2059,15 +2063,24 @@ namespace giac {
     fclose(f);
     unsigned char * ptr=(unsigned char *)text.c_str();
     for (int i=0;i<nkeys;++i){
+      int offset=0;
+      string current=fnames[i];
+      if (current.size()>=7 && current.substr(0,7)=="certif1")
+        current="certif1";
+      if (current.size()>=14 && current.substr(0,8)=="epsilon."){
+        if (current.substr(9,2)=="9b")
+          offset=0x1b0000;
+        current="epsilon.";
+      }
       if (debug_infolevel)
-	CERR << i << " " << firmwarename << " " << taille << " " << fnames[i] << " " << tailles[i] << '\n';
-      if (firmwarename!=fnames[i] || taille<tailles[i])
+	CERR << "shakeys_index=" << i << ", shakeys_name=" << fnames[i] << " as " << current << ", size=" << tailles[i] << ", offset=" << offset << ", firmwarename=" << firmwarename << ", size=" << taille << '\n';
+      if (firmwarename!=current || taille<tailles[i])
 	continue;
       // now try for all compatible sizes
       // we do not know the firmware size, we extract 2M or 6M
       // the part after the end is not known
       giac_sha256_init(&ctx);
-      giac_sha256_update(&ctx, ptr, tailles[i]);
+      giac_sha256_update(&ctx, ptr+offset, tailles[i]);
       giac_sha256_final(&ctx, buf);
       if (!memcmp(hash[i], buf, SHA256_BLOCK_SIZE))
 	return true;
@@ -2109,6 +2122,12 @@ namespace giac {
     *logptr(contextptr) << "Extraction du firmware externe slot A\n" ;
     if (!dfu_get_slot(epsilon,0)) return false;
     *logptr(contextptr) << "Verification de signature externe slot A\n" ;
+    if (sha256_check(sig.c_str(),epsilon,"epsilon.")){
+      if (!dfu_get_slot(epsilon,40)) return false;
+      *logptr(contextptr) << "Verification de signature externe KhiCAS B\n" ;
+      if (!sha256_check(sig.c_str(),epsilon,"certif1")) return false;
+      return true;
+    }
     if (!sha256_check(sig.c_str(),epsilon,"khi.A.bin")){
       if (!sha256_check(sig.c_str(),epsilon,"epsilona"))
         return false;
@@ -2180,7 +2199,9 @@ namespace giac {
   }
 #endif
   time_t caseval_begin,caseval_current;
+  double caseval_begin_ms=0;  
   double caseval_maxtime=15; // max 15 seconds
+  double caseval_steps=0,caseval_stepmark=0,caseval_maxsteps=0;
   int caseval_n=0,caseval_mod=0,caseval_unitialized=-123454321;
 #if !defined POCKETCAS
   void control_c(){
@@ -2202,20 +2223,31 @@ namespace giac {
       caseval_n=0;
       caseval_maxtime=15;
     }
+    // Step budget (ckbudget N): every call counts, and after N of them since the start (or the last
+    // interrupt) Giac interrupts itself, whatever the clock says. Off (0) by default.
+    ++caseval_steps;
+    if (caseval_maxsteps>0 && caseval_steps-caseval_stepmark>caseval_maxsteps){
+      CERR << "Step budget" << '\n'; ctrl_c=true; interrupted=true;
+      caseval_stepmark=caseval_steps;
+    }
     if (caseval_mod>0){ 
       ++caseval_n; 
       if (caseval_n >=caseval_mod){
 	caseval_n=0; 
 	caseval_current=time(0); 
 #if defined(EMCC) || defined(EMCC2)
-	if (difftime(caseval_current,caseval_begin)>caseval_maxtime)
+	// if (difftime(caseval_current,caseval_begin)>caseval_maxtime)
+        if (emscripten_get_now()-caseval_begin_ms>caseval_maxtime*1000)
 #else
 	if (caseval_current>caseval_maxtime+caseval_begin)
 #endif
 	  { 
 	    CERR << "Timeout" << '\n'; ctrl_c=true; interrupted=true; 
 	    caseval_begin=caseval_current;
-	  } 
+#if defined(EMCC) || defined(EMCC2)
+	    caseval_begin_ms=emscripten_get_now();
+#endif
+          } 
       } 
     }
 #endif // NSPIRE
@@ -2223,17 +2255,18 @@ namespace giac {
 #endif // POCKETCAS
 #endif // TIMEOUT
 
-#if defined KHICAS || defined SDL_KHICAS
+#if defined KHICAS
   void usleep(int t){
     os_wait_1ms(t/1000);
   }
-#else
-#ifdef NSPIRE_NEWLIB
+#elif defined NSPIRE_NEWLIB
   void usleep(int t){
     msleep(t/1000);
   }
-#endif
-  
+#elif defined FREERTOS
+  void usleep(int t){
+    Sleep(t/1000);
+  }  
 #endif
 
 #if defined VISUALC || defined BESTA_OS
@@ -3254,10 +3287,25 @@ extern "C" void Sleep(unsigned int miliSecond);
     return &CERR;
   }
 #else
-#ifdef FXCG
+#if defined FXCG 
   static ostream * _logptr_=0;
+#elif GIAC_SILENT
+  // 1. On crée un tampon qui accepte tout et ne fait rien
+  class NullBuffer : public std::streambuf {
+  public:
+    // overflow est appelée quand le tampon est plein (ici, tout le temps)
+    int overflow(int c) override {
+      return c; // On dit que tout s'est bien passé
+    }
+  };
+  
+  // 2. On instancie le tampon ET le flux
+  static NullBuffer null_buffer;
+  // On lui donne l'adresse de notre vrai tampon vide
+  std::ostream cnull(&null_buffer);
+  static ostream * _logptr_=&cnull;
 #else
-#if defined KHICAS || defined SDL_KHICAS
+#if defined KHICAS || defined SDL_KHICAS 
   stdostream os_cerr;
   static my_ostream * _logptr_=&os_cerr;
 #else
@@ -3273,8 +3321,10 @@ extern "C" void Sleep(unsigned int miliSecond);
 #if (defined(EMCC) || defined(EMCC2)) && !defined SDL_KHICAS
     return res?res:&COUT;
 #else
-#ifdef FXCG
+#if defined FXCG 
     return 0;
+#elif GIAC_SILENT
+    return res?res:&cnull;
 #else
 #if defined KHICAS || defined SDL_KHICAS
     return res?res:&os_cerr;
@@ -3895,7 +3945,7 @@ extern "C" void Sleep(unsigned int miliSecond);
   int debug_infolevel=0;
 #endif
   int printprog=0;
-#if defined __APPLE__ || defined VISUALC || defined __MINGW_H || defined BESTA_OS || defined NSPIRE || defined FXCG || defined NSPIRE_NEWLIB || defined KHICAS || defined SDL_KHICAS
+#if defined __APPLE__ || defined VISUALC || defined __MINGW_H || defined BESTA_OS || defined FREERTOS || defined NSPIRE || defined FXCG || defined NSPIRE_NEWLIB || defined KHICAS || defined SDL_KHICAS
 #ifdef _WIN32
   int threads=atoi(getenv("NUMBER_OF_PROCESSORS"));
 #else
@@ -5062,7 +5112,7 @@ extern "C" void Sleep(unsigned int miliSecond);
   }
 
   string giac_aide_dir(){
-#if defined NSPIRE || defined FXCG || defined MINGW32
+#if defined NSPIRE || defined FXCG || defined MINGW32 || defined FREERTOS
     return xcasroot();
 #else
     if (!access((xcasroot()+"aide_cas").c_str(),R_OK)){
@@ -5322,7 +5372,11 @@ extern "C" void Sleep(unsigned int miliSecond);
     }
     if (ss && s[ss]!='.')
       s=s.substr(0,ss);
+#ifdef __MINGW_H
+    s="firefox.exe '"+s+"' &";
+#else
     s=xcasroot()+"cygstart.exe '"+s+"' &";
+#endif
     /*
     if (with_firefox){
       s="'"+firefox+"' '"+s+"' &";
@@ -6437,7 +6491,7 @@ NULL,NULL,SW_SHOWNORMAL);
 #if (defined(EMCC) || defined(EMCC2)) && !defined SDL_KHICAS
 		     _logptr_(&COUT), 
 #else
-#ifdef FXCG
+#if defined FXCG || defined GIAC_SILENT
 		     _logptr_(0),
 #else
 #if defined KHICAS || defined SDL_KHICAS
@@ -7823,8 +7877,10 @@ unsigned int ConvertUTF8toUTF162 (
     newlinestobr(s,format.substr(pos,format.size()-pos));
     *logptr(contextptr) << s << '\n';
 #if !defined(UPSILON) && (defined(EMCC) || defined(EMCC2))
+    //*logptr(contextptr) << char(3);
+    //if (logptr(contextptr)) logptr(contextptr)->flush(); // end mixed text/mathml    
     *logptr(contextptr) << char(3) << '\n'; // end mixed text/mathml
-    *logptr(contextptr) << '\n';
+    //*logptr(contextptr) << '\n';
 #endif
   }
 
@@ -9365,7 +9421,7 @@ void update_lexer_localization(const std::vector<int> & v,std::map<std::string,s
     charptr_gen * builtin_lexer_functions(){
       static charptr_gen * ans=0;
       if (!ans){
-	ans = new charptr_gen[1999];
+	ans = new charptr_gen[2999];
 	builtin_lexer_functions_number=0;
       }
       return ans;

@@ -43,32 +43,33 @@
 typedef mp_uint_t regs_t[6];
 
 STATIC void gc_helper_get_regs(regs_t arr) {
+#ifdef __clang__
+    // Named register variables for rbp/rbx are rejected by newer Clang.
+    // Write callee-saved registers directly to memory via inline asm.
+    __asm__ volatile (
+        "movq %%rbx, %0\n\t"
+        "movq %%rbp, %1\n\t"
+        "movq %%r12, %2\n\t"
+        "movq %%r13, %3\n\t"
+        "movq %%r14, %4\n\t"
+        "movq %%r15, %5"
+        : "=m"(arr[0]), "=m"(arr[1]), "=m"(arr[2]),
+          "=m"(arr[3]), "=m"(arr[4]), "=m"(arr[5])
+    );
+#else
     register long rbx asm ("rbx");
     register long rbp asm ("rbp");
     register long r12 asm ("r12");
     register long r13 asm ("r13");
     register long r14 asm ("r14");
     register long r15 asm ("r15");
-#ifdef __clang__
-    // TODO:
-    // This is dirty workaround for Clang. It tries to get around
-    // uncompliant (wrt to GCC) behavior of handling register variables.
-    // Application of this patch here is random, and done only to unbreak
-    // MacOS build. Better, cross-arch ways to deal with Clang issues should
-    // be found.
-    asm("" : "=r"(rbx));
-    asm("" : "=r"(rbp));
-    asm("" : "=r"(r12));
-    asm("" : "=r"(r13));
-    asm("" : "=r"(r14));
-    asm("" : "=r"(r15));
-#endif
     arr[0] = rbx;
     arr[1] = rbp;
     arr[2] = r12;
     arr[3] = r13;
     arr[4] = r14;
     arr[5] = r15;
+#endif
 }
 
 #elif defined(__i386__)
@@ -76,26 +77,24 @@ STATIC void gc_helper_get_regs(regs_t arr) {
 typedef mp_uint_t regs_t[4];
 
 STATIC void gc_helper_get_regs(regs_t arr) {
+#ifdef __clang__
+    __asm__ volatile (
+        "movl %%ebx, %0\n\t"
+        "movl %%esi, %1\n\t"
+        "movl %%edi, %2\n\t"
+        "movl %%ebp, %3"
+        : "=m"(arr[0]), "=m"(arr[1]), "=m"(arr[2]), "=m"(arr[3])
+    );
+#else
     register long ebx asm ("ebx");
     register long esi asm ("esi");
     register long edi asm ("edi");
     register long ebp asm ("ebp");
-#ifdef __clang__
-    // TODO:
-    // This is dirty workaround for Clang. It tries to get around
-    // uncompliant (wrt to GCC) behavior of handling register variables.
-    // Application of this patch here is random, and done only to unbreak
-    // MacOS build. Better, cross-arch ways to deal with Clang issues should
-    // be found.
-    asm("" : "=r"(ebx));
-    asm("" : "=r"(esi));
-    asm("" : "=r"(edi));
-    asm("" : "=r"(ebp));
-#endif
     arr[0] = ebx;
     arr[1] = esi;
     arr[2] = edi;
     arr[3] = ebp;
+#endif
 }
 
 #elif defined(__thumb2__) || defined(__thumb__) || defined(__arm__)

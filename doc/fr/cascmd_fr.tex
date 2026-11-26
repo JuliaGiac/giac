@@ -79,7 +79,10 @@ Cette documentation est fournie en l'\'etat, sans garantie d'aucune
 sorte. En aucun cas le d\'etenteur du copyright ne pourra \^etre tenu
 pour responsable de dommages r\'esultant de l'utilisation de ce
 document.\\
-
+Certaines sections de proba-stats ont été rédigées par Hicham Ettahri
+(de la section \ref{sec:pca} à la section \ref{sec:fit}) qui en
+autorise la diffusion dans
+les versions sous licence GPL de Giac/Xcas.
 
 Ce document est disponible \`a l'adresse Internet suivante :\\
 \verb|http://www-fourier.ujf-grenoble.fr/~parisse/cascmd_fr.pdf|
@@ -18484,6 +18487,8 @@ On obtient :\\
 Voir aussi ces fonctions pour les matrices \`a la section \ref{sec:statmat} et 
 pour les listes pond\'er\'ees au chapitre \ref{sec:stat}.
 
+
+
 \section{Les tableaux indic\'es par des cha\^{i}nes : {\tt table}}\index{table}
 \index{matrix}\index{convert}\index{array @ {\sl array}}\label{sec:table}
 Une table est une liste indic\'ee par quelque chose de plus g\'en\'eral que des
@@ -27139,6 +27144,742 @@ On tape :
 On obtient :
 \begin{center}{\tt une matrice carr\'ee de dimension [11,11]}\end{center}
 en effet $1+2+1+3+4=11$
+
+\section{Analyse en Composantes Principales : {\tt cov\_matrix, pca\_eigenvalues, pca\_explained\_ratio, pca\_V, pca\_loadings, pca\_scores, pca\_select\_q}}
+\index{cov\_matrix}\index{pca\_eigenvalues}\index{pca\_explained\_ratio}\index{pca\_V}\index{pca\_loadings}\index{pca\_scores}\index{pca\_select\_q}
+\label{sec:pca}
+
+L'Analyse en Composantes Principales (ACP) permet de r\'eduire la dimension d'une
+matrice de donn\'ees $X \in \mathbb{R}^{n \times p}$ en une matrice $Z \in \mathbb{R}^{n \times q}$
+avec $q \leq p$, telle que $Z = X_c \cdot W$, o\`u $X_c$ est la matrice $X$ centr\'ee
+et $W \in \mathbb{R}^{p \times q}$ est la matrice des $q$ premiers vecteurs propres de la
+matrice de covariance $\Sigma = \mathrm{cov}(X)$.\\
+La d\'ecomposition spectrale de $\Sigma$ s'\'ecrit $\Sigma = V D V^T$,
+avec $D = \mathrm{diag}(\lambda_1, \ldots, \lambda_p)$, $\lambda_1 \geq \cdots \geq \lambda_p$,
+et $V \in O_p(\mathbb{R})$ la matrice orthogonale dont les colonnes sont les vecteurs propres associ\'es.
+La matrice $W$ est form\'ee des $q$ premi\`eres colonnes de $V$.
+
+\begin{itemize}
+
+\item{\tt cov\_matrix} calcule la matrice de covariance $\Sigma$ (de taille $p \times p$)
+d'une matrice de donn\'ees $X$ de taille $n \times p$.\\
+On tape :
+\begin{center}{\tt cov\_matrix([[1,2],[3,4],[5,6]])}\end{center}
+On obtient :
+\begin{center}{\tt [[2.66666666667,2.66666666667],[2.66666666667,2.66666666667]]}\end{center}
+
+\item{\tt pca\_eigenvalues} calcule la liste des valeurs propres de la matrice de
+covariance, tri\'ees par ordre d\'ecroissant.\\
+On tape :
+\begin{center}{\tt pca\_eigenvalues([[2,1,1],[1,2,1],[1,1,2]])}\end{center}
+On obtient :
+\begin{center}{\tt [4,1,1]}\end{center}
+
+\item{\tt pca\_explained\_ratio} calcule la liste des ratios de variance expliqu\'ee
+par chaque composante principale, \`a partir d'un vecteur de valeurs propres tri\'ees.\\
+On tape :
+\begin{center}{\tt pca\_explained\_ratio([6,4,1])}\end{center}
+On obtient :
+\begin{center}{\tt [6/11,4/11,1/11]}\end{center}
+
+\item{\tt pca\_V} calcule la matrice orthogonale $V \in O_p(\mathbb{R})$ dont les colonnes
+sont les vecteurs propres de la matrice de covariance, ordonn\'es par valeur propre d\'ecroissante,
+telle que $\Sigma = V D V^T$.\\
+On tape :
+\begin{center}{\tt pca\_V([[2,1,1],[1,2,1],[1,1,2]])}\end{center}
+On obtient la matrice orthogonale de passage $V$.
+
+\item{\tt pca\_loadings} calcule la matrice de chargements $W \in \mathbb{R}^{p \times q}$
+form\'ee des $q$ premiers vecteurs propres de la matrice de covariance.
+Si $q$ est omis, renvoie $V$ en entier.\\
+On tape :
+\begin{center}{\tt pca\_loadings([[2,1,1],[1,2,1],[1,1,2]],2)}\end{center}
+On obtient la matrice $W$ de taille $3 \times 2$.\\
+On tape :
+\begin{center}{\tt pca\_loadings([[2,1,1],[1,2,1],[1,1,2]])}\end{center}
+On obtient la matrice $V$ enti\`ere de taille $3 \times 3$.
+
+\item{\tt pca\_scores} calcule la matrice des scores $Z \in \mathbb{R}^{n \times q}$
+en projetant la matrice de donn\'ees $X$ centr\'ee sur les $q$ premi\`eres composantes
+principales : $Z = X_c \cdot W$.\\
+On tape :
+\begin{center}{\tt pca\_scores([[1,2,3],[4,5,6],[7,8,9]],2)}\end{center}
+On obtient la matrice $Z$ de taille $3 \times 2$.
+
+\item{\tt pca\_select\_q} renvoie le plus petit entier $q$ tel que les $q$ premi\`eres
+composantes principales expliquent au moins la proportion demand\'ee de la variance totale.
+Le seuil doit \^etre un r\'eel dans $]0, 1]$.\\
+On tape :
+\begin{center}{\tt pca\_select\_q([[2,1,1],[1,2,1],[1,1,2]],0.8)}\end{center}
+On obtient : 
+\begin{center}{\tt 2}\end{center}
+On tape :
+\begin{center}{\tt pca\_select\_q([[2,1,1],[1,2,1],[1,1,2]],0.9)}\end{center}
+On obtient : 
+\begin{center}{\tt 3}\end{center}
+
+\item{\tt pca} est la fonction fa\c{c}ade de l'ACP : \'etant donn\'es une matrice
+de donn\'ees $X \in \mathbb{R}^{n \times p}$ et un seuil $\tau \in ]0,1]$,
+elle s\'electionne automatiquement le plus petit $q$ tel que les $q$ premi\`eres
+composantes expliquent au moins $\tau$ de la variance totale, puis retourne
+la liste {\tt [Z, q, cumul]} o\`u :
+\begin{itemize}
+  \item {\tt Z} est la matrice des scores $Z \in \mathbb{R}^{n \times q}$,
+  \item {\tt q} est le nombre de composantes retenues,
+  \item {\tt cumul} est le vecteur des ratios de variance cumul\'ee.
+\end{itemize}
+On tape :
+\begin{center}{\tt pca([[2,1,3],[4,2,1],[1,3,2],[3,1,4]],0.90)}\end{center}
+On obtient {\tt [Z, q, cumul]} avec {\tt cumul[q-1] $ \geq $ 0.90}.\\
+On tape :
+\begin{center}{\tt res := pca(X, 0.95)}\end{center}
+On acc\`ede ensuite aux r\'esultats par :
+\begin{center}{\tt res[0]} \quad (matrice $Z$) \qquad {\tt res[1]} \quad ($q$) \qquad {\tt res[2]} \quad (variance cumul\'ee)\end{center}
+
+\end{itemize}
+
+\section{Régression Linéaire Multiple : {\tt mlr\_beta, mlr\_predict, mlr\_residuals, mlr\_r2, mlr\_sigma2, mlr\_mse, mlr\_ic, mlr}}
+\index{mlr\_beta}\index{mlr\_predict}\index{mlr\_residuals}\index{mlr\_r2}\index{mlr\_sigma2}\index{mlr\_mse}\index{mlr\_ic}\index{mlr}
+\label{sec:mlr}
+
+La r\'egression lin\'eaire multiple mod\'elise une variable r\'eponse $y \in \R^n$
+en fonction d'une matrice de donn\'ees $X \in \R^{n \times p}$ par :
+$$Y = X\beta + \varepsilon, \quad \varepsilon \sim \mathcal{N}(0, \sigma^2 I_n)$$
+o\`u $\beta = (\beta_0, \beta_1, \ldots, \beta_p)^T \in \R^{p+1}$ est le vecteur
+des coefficients \`a estimer. L'estimateur des moindres carr\'es ordinaires (OLS) est :
+$$\hat{\beta} = (X^TX)^{-1}X^Ty$$
+o\`u $X$ est augment\'ee d'une colonne de 1 pour l'intercept $\beta_0$.
+Cet estimateur existe si et seulement si $X^TX$ est inversible, c'est-\`a-dire
+si les colonnes de $X$ sont lin\'eairement ind\'ependantes (absence de
+multicollin\'earit\'e).
+La qualit\'e de l'ajustement est mesur\'ee par le coefficient de d\'etermination :
+$$R^2 = 1 - \frac{SS_{res}}{SS_{tot}}, \quad SS_{res} = \sum_{i=1}^n(y_i - \hat{y}_i)^2,
+\quad SS_{tot} = \sum_{i=1}^n(y_i - \bar{y})^2$$
+La variance r\'esiduelle sans biais est estim\'ee par :
+$$\hat{\sigma}^2 = \frac{SS_{res}}{n-p-1}$$
+o\`u $n-p-1$ est le nombre de degr\'es de libert\'e.
+L'incertitude sur chaque coefficient $\hat{\beta}_i$ est quantifi\'ee par :
+$$se(\hat{\beta}_i) = \hat{\sigma}\sqrt{[(X^TX)^{-1}]_{ii}}$$
+et l'intervalle de confiance \`a 95\% sur $\beta_i$ est :
+$$\hat{\beta}_i \pm t_{n-p-1,\, 0.975} \cdot se(\hat{\beta}_i)$$
+o\`u $t_{n-p-1,\, 0.975}$ est le quantile de la loi de Student \`a $n-p-1$ degr\'es
+de libert\'e, car $\sigma$ est inconnu et remplac\'e par $\hat{\sigma}$.
+
+\begin{itemize}
+
+\item{\tt mlr\_beta} calcule le vecteur des $p+1$ coefficients
+$\hat{\beta} = (\beta_0, \beta_1, \ldots, \beta_p)^T$ par la formule OLS
+$\hat{\beta} = (X^TX)^{-1}X^Ty$.
+Retourne une erreur si $X^TX$ est singuli\`ere (multicollin\'earit\'e).\\
+On tape :
+\begin{center}{\tt mlr\_beta([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt [0.05,1.99]}\end{center}
+
+\item{\tt mlr\_predict} calcule les valeurs pr\'edites $\hat{y} = X_{aug} \cdot \hat{\beta}$
+\`a partir de la matrice $X$ et du vecteur $\hat{\beta}$ retourn\'e par {\tt mlr\_beta}.\\
+On tape :
+\begin{center}{\tt mlr\_predict([[1],[2],[3],[4],[5]],[0.05,1.99])}\end{center}
+On obtient :
+\begin{center}{\tt [2.04,4.03,6.02,8.01,10.0]}\end{center}
+
+\item{\tt mlr\_residuals} calcule le vecteur des r\'esidus $e = y - \hat{y}$.\\
+On tape :
+\begin{center}{\tt mlr\_residuals([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt [0.06,-0.13,0.18,-0.21,0.1]}\end{center}
+
+\item{\tt mlr\_r2} calcule le coefficient de d\'etermination
+$R^2 = 1 - SS_{res}/SS_{tot} \in [0,1]$.
+Plus $R^2$ est proche de 1, meilleur est l'ajustement.\\
+On tape :
+\begin{center}{\tt mlr\_r2([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt 0.997305328901}\end{center}
+
+\item{\tt mlr\_sigma2} calcule la variance r\'esiduelle sans biais
+$\hat{\sigma}^2 = SS_{res}/(n-p-1)$, estimateur de la variance du bruit $\sigma^2$.\\
+On tape :
+\begin{center}{\tt mlr\_sigma2([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt 0.0356666666667}\end{center}
+
+\item{\tt mlr\_mse} calcule l'erreur quadratique moyenne
+$MSE = SS_{res}/n$ (biais\'ee, sans correction de degr\'es de libert\'e).\\
+On tape :
+\begin{center}{\tt mlr\_mse([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt 0.0214}\end{center}
+On notera que $MSE \leq \hat{\sigma}^2$ car $n \geq n-p-1$.
+
+\item{\tt mlr\_ic} calcule la matrice des intervalles de confiance \`a 95\%
+sur chaque $\beta_i$, de taille $(p+1) \times 2$.
+Chaque ligne $i$ contient $[\hat{\beta}_i - t \cdot se(\hat{\beta}_i),\,
+\hat{\beta}_i + t \cdot se(\hat{\beta}_i)]$ o\`u $t = t_{n-p-1,\,0.975}$.
+Si 0 est dans l'intervalle, $\beta_i$ n'est pas significativement diff\'erent de 0.\\
+On tape :
+\begin{center}{\tt mlr\_ic([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}{\tt [[-0.58036006113,0.68036006113],[1.7999392904,2.1800607096]]}\end{center}
+$\beta_0 \in [-0.58, 0.68]$ contient 0 (non significatif) ;
+$\beta_1 \in [1.80, 2.18]$ ne contient pas 0 (significatif).
+
+\item{\tt mlr} est la fonction fa\c{c}ade de la r\'egression lin\'eaire multiple.
+Elle retourne un tableau de paires {\tt ["nom", valeur]} avec une ligne par grandeur
+estim\'ee :
+\begin{itemize}
+  \item {\tt ["beta\_0", $\hat{\beta}_0$]}, \ldots, {\tt ["beta\_p", $\hat{\beta}_p$]} :
+        les $p+1$ coefficients estim\'es,
+  \item {\tt ["y\_pred", $\hat{y}$]} : le vecteur des valeurs pr\'edites $\in \R^n$,
+  \item {\tt ["residus", $e$]} : le vecteur des r\'esidus $e = y - \hat{y} \in \R^n$,
+  \item {\tt ["R2", $R^2$]} : le coefficient de d\'etermination,
+  \item {\tt ["sigma2", $\hat{\sigma}^2$]} : la variance r\'esiduelle sans biais,
+  \item {\tt ["mse", $MSE$]} : l'erreur quadratique moyenne,
+  \item {\tt ["IC\_beta\_0", $[\cdot,\cdot]$]}, \ldots, {\tt ["IC\_beta\_p", $[\cdot,\cdot]$]} :
+        les intervalles de confiance \`a 95\% sur chaque $\beta_i$.
+\end{itemize}
+Le troisi\`eme argument optionnel {\tt use\_qr=1} active la d\'ecomposition QR r\'eduite
+$X_{aug} = Q_1 R_1$ pour plus de stabilit\'e num\'erique.\\
+On tape :
+\begin{center}{\tt mlr([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1])}\end{center}
+On obtient :
+\begin{center}
+\begin{tabular}{ll}
+{\tt beta\_0}     & {\tt 0.05} \\
+{\tt beta\_1}     & {\tt 1.99} \\
+{\tt y\_pred}     & {\tt [2.04, 4.03, 6.02, 8.01, 10.0]} \\
+{\tt residus}     & {\tt [0.06, -0.13, 0.18, -0.21, 0.1]} \\
+{\tt R2}          & {\tt 0.997305328901} \\
+{\tt sigma2}      & {\tt 0.0356666666667} \\
+{\tt mse}         & {\tt 0.0214} \\
+{\tt IC\_beta\_0} & {\tt [-0.58036006113, 0.68036006113]} \\
+{\tt IC\_beta\_1} & {\tt [1.7999392904, 2.1800607096]} \\
+\end{tabular}
+\end{center}
+On tape avec QR :
+\begin{center}{\tt mlr([[1],[2],[3],[4],[5]],[2.1,3.9,6.2,7.8,10.1],1)}\end{center}
+On obtient les m\^emes r\'esultats via la d\'ecomposition QR r\'eduite.
+
+\end{itemize}
+
+\section{Simulation de processus stochastiques : {\tt brownian, gbm, ornstein\_uhlenbeck, cir, sde\_euler, sde\_milstein}%
+  \texorpdfstring{\ {\small[\href{http://damsteam.free.fr/calculsto/intro-calcul-sto.pdf}{r\'ef.}]}}{}}
+\label{sec:sde}
+
+Ces commandes simulent num\'eriquement des \emph{processus stochastiques} \`a temps
+continu, c'est-\`a-dire des trajectoires al\'eatoires $t \mapsto X_t$ index\'ees par
+le temps. Chaque commande renvoie une trajectoire \'echantillonn\'ee sur une grille
+r\'eguli\`ere de l'intervalle $[0,T]$.
+
+\medskip\noindent\textbf{Mouvement brownien standard.}
+Le \emph{mouvement brownien standard} (MBS) $W = (W_t)_{t \geq 0}$ est le processus
+al\'eatoire fondamental, qui sert de source de bruit \`a tous les autres. Il est
+caract\'eris\'e par : $W_0 = 0$ presque s\^urement ; des accroissements
+ind\'ependants (pour $0 \leq t_0 < \cdots < t_n$, les $W_{t_{i+1}} - W_{t_i}$ sont
+ind\'ependants) ; des accroissements stationnaires et gaussiens, soit
+$W_t - W_s \sim \mathcal{N}(0,\, t-s)$ pour $0 \leq s < t$ ; et des trajectoires
+$t \mapsto W_t$ continues. En particulier $W_t \sim \mathcal{N}(0,t)$ et
+$\mathrm{Cov}(W_s, W_t) = \min(s,t)$. Intuitivement, le MBS mod\'elise un bruit
+accumul\'e dont la dispersion cro\^it en $\sqrt{t}$.
+
+\medskip\noindent\textbf{\'Equations diff\'erentielles stochastiques.}
+Une \emph{\'equation diff\'erentielle stochastique} (EDS) d\'ecrit l'\'evolution d'un
+processus $X = (X_t)$ soumis \`a la fois \`a une tendance d\'eterministe et \`a un
+bruit brownien :
+$$dX_t = b(t, X_t)\, dt + \sigma(t, X_t)\, dW_t$$
+o\`u $b$ est la \emph{d\'erive} (\textit{drift}) et $\sigma$ la \emph{diffusion}
+(ou volatilit\'e). Cette \'ecriture diff\'erentielle abr\`ege la forme int\'egrale
+(au sens d'It\^o)
+$$X_t = X_0 + \int_0^t b(s, X_s)\, ds + \int_0^t \sigma(s, X_s)\, dW_s.$$
+Intuitivement, sur un petit pas de temps $dt$, le processus avance d'une part
+d\'eterministe $b\,dt$ et d'un choc al\'eatoire $\sigma\, dW_t$ o\`u
+$dW_t \sim \mathcal{N}(0, dt)$.
+
+\medskip\noindent\textbf{Sch\'emas de discr\'etisation.}
+On subdivise $[0,T]$ en $n$ pas de longueur $\Delta t = T/n$, aux instants
+$t_k = k\,\Delta t$. On note $Z_0, \ldots, Z_{n-1}$ des variables $\mathcal{N}(0,1)$
+ind\'ependantes et $\Delta W_k = \sqrt{\Delta t}\, Z_k$ l'accroissement brownien
+sur le $k$-i\`eme pas. Le sch\'ema d'\emph{Euler-Maruyama} approche l'EDS par
+$$X_{k+1} = X_k + b(t_k, X_k)\, \Delta t + \sigma(t_k, X_k)\, \Delta W_k$$
+et est d'ordre de convergence $1/2$. Le sch\'ema de \emph{Milstein} ajoute un
+terme correctif et atteint l'ordre $1$ :
+$$X_{k+1} = X_k + b(t_k, X_k)\, \Delta t + \sigma(t_k, X_k)\, \Delta W_k
+  + \tfrac{1}{2}\, \sigma(t_k, X_k)\, \partial_x \sigma(t_k, X_k)\,
+  \big( \Delta W_k^2 - \Delta t \big).$$
+La d\'eriv\'ee partielle $\partial_x \sigma$ est obtenue par d\'erivation
+\emph{symbolique} de l'expression de $\sigma$ (commande {\tt derive}), ce qui \'evite
+\`a l'utilisateur de la fournir explicitement.
+
+\medskip\noindent\textbf{Processus impl\'ement\'es.}
+Trois EDS classiques, importantes en finance, disposent d'une commande d\'edi\'ee.
+Le \emph{mouvement brownien g\'eom\'etrique} (MBG) mod\'elise le prix d'un actif
+risqu\'e :
+$$dS_t = \mu S_t\, dt + \sigma S_t\, dW_t, \qquad
+  S_t = S_0 \exp\!\Big( (\mu - \tfrac{1}{2}\sigma^2)\, t + \sigma W_t \Big).$$
+Sa loi est log-normale ; $\mu$ est la tendance (rendement) et $\sigma$ la
+volatilit\'e. La solution \'etant explicite, la simulation est \emph{exacte} (sans
+erreur de discr\'etisation). Le processus d'\emph{Ornstein-Uhlenbeck} (mod\`ele de
+Vasicek) est gaussien et pr\'esente un \emph{retour \`a la moyenne} :
+$$dX_t = \alpha(\theta - X_t)\, dt + \sigma\, dW_t,$$
+o\`u $\theta$ est le niveau d'\'equilibre et $\alpha > 0$ la vitesse de rappel ; on a
+$\mathbb{E}[X_t] = \theta + (X_0 - \theta)\, e^{-\alpha t}$ et la variance tend vers
+$\sigma^2/(2\alpha)$. Sa transition \'etant gaussienne, la simulation est aussi
+\emph{exacte} (le choix $\theta = 0$ redonne $dX_t = -\alpha X_t\,dt + \sigma\,dW_t$).
+Enfin le mod\`ele de \emph{Cox-Ingersoll-Ross} (CIR) d\'ecrit un taux d'int\'er\^et
+positif \`a retour \`a la moyenne :
+$$dR_t = a(b - R_t)\, dt + \sigma \sqrt{R_t}\, dW_t.$$
+Le terme $\sqrt{R_t}$ annule la volatilit\'e lorsque $R_t$ approche $0$, ce qui
+maintient le processus positif (sous la condition de Feller $2ab \geq \sigma^2$).
+Faute de forme close, la simulation utilise un sch\'ema d'Euler \`a \emph{troncature
+compl\`ete} o\`u $\sqrt{R_t}$ est remplac\'e par $\sqrt{\max(R_t, 0)}$.
+
+\medskip\noindent\textbf{Sortie et reproductibilit\'e.}
+Chaque commande prend un argument optionnel final $m$ : si $m$ est omis (ou vaut
+$1$), elle renvoie une seule trajectoire sous forme de liste
+$[X_0, X_1, \ldots, X_n]$ de $n+1$ valeurs ; si $m > 1$, elle renvoie une matrice
+$m \times (n+1)$ dont chaque ligne est une trajectoire ind\'ependante. Les tirages
+al\'eatoires utilisent la loi normale de Giac ; on peut fixer le seed avec
+{\tt srand} pour obtenir des r\'esultats reproductibles. Pour tracer une trajectoire
+sur l'axe temporel, on associe \`a chaque valeur son instant $t_k = k\,T/n$ :
+\begin{center}{\tt T:=1; W:=brownian(T,250); listplot([seq([k*T/250,W[k]],k,0,250)])}\end{center}
+On colore et \'epaissit un trac\'e avec {\tt display} (par exemple un MBG en rouge gras) :
+\begin{center}{\tt T:=1; n:=250; S:=gbm(100,0.08,0.2,T,n);}\\
+{\tt display(listplot([seq([k*T/n,S[k]],k,0,n)]),red+line\_width\_2)}\end{center}
+Pour une matrice de $m$ trajectoires {\tt P}, on les superpose par une {\tt seq} :
+\begin{center}{\tt seq(listplot([seq([k*T/n,P[j][k]],k,0,n)]),j,0,m-1)}\end{center}
+On peut factoriser ce trac\'e multi-trajectoires en une petite fonction utilitaire,
+\`a d\'efinir une fois dans sa session (elle d\'eduit le nombre de pas de la matrice) :
+\begin{center}{\tt plotp(M,T):=seq(listplot([seq([k*T/(size(M[0])-1),M[j][k]],k,0,size(M[0])-1)]),j,0,size(M)-1)}\end{center}
+qui s'emploie alors directement, par exemple {\tt plotp(gbm(100,0.1,0.2,1,250,40),1)}.
+On peut enfin superposer une courbe analytique pour comparer : la moyenne
+th\'eorique d'un MBG, $\mathbb{E}[S_t] = s_0 e^{\mu t}$, par {\tt plot(100*exp(0.1*x),x,0,1)} ;
+ou le niveau d'\'equilibre d'un OU/CIR par une droite horizontale,
+{\tt display(line(y=theta),red+line\_width\_2)}.
+
+\begin{itemize}
+
+\item{\tt brownian} simule un mouvement brownien standard sur $[0,T]$ \`a $n$ pas,
+par $W_0 = 0$ et $W_{k+1} = W_k + \sqrt{\Delta t}\, Z_k$. Renvoie la liste
+$[W_0, \ldots, W_n]$, ou une matrice $m \times (n+1)$ si $m$ est fourni.\\
+On tape :
+\begin{center}{\tt brownian(1,4)}\end{center}
+On obtient une liste de $5$ valeurs d\'ebutant par $0$, par exemple (al\'eatoire)
+{\tt [0.0,0.43,0.21,0.95,0.78]}.\\
+On tape :
+\begin{center}{\tt brownian(1,250,10)}\end{center}
+On obtient une matrice $10 \times 251$ ($10$ trajectoires ind\'ependantes).
+
+\item{\tt gbm} simule un mouvement brownien g\'eom\'etrique de prix initial $s_0$,
+tendance $\mu$ et volatilit\'e $\sigma$, par le sch\'ema exact
+$S_{k+1} = S_k \exp\!\big( (\mu - \tfrac{1}{2}\sigma^2)\Delta t + \sigma \sqrt{\Delta t}\, Z_k \big)$.\\
+On tape :
+\begin{center}{\tt gbm(100,0.1,0.2,1,250)}\end{center}
+On obtient une trajectoire de prix ($251$ valeurs) partant de $100$.\\
+Avec $\sigma = 0$ la trajectoire est d\'eterministe et vaut $S_k = s_0\, e^{\mu t_k}$ :\\
+On tape :
+\begin{center}{\tt gbm(100,0.05,0,1,4)}\end{center}
+On obtient :
+\begin{center}{\tt [100.0,101.257845...,102.531512...,103.821130...,105.127110...]}\end{center}
+soit $100\, e^{0.0125\,k}$, la derni\`ere valeur \'etant $100\, e^{0.05}$.
+
+\item{\tt ornstein\_uhlenbeck} simule le processus de Vasicek
+$dX_t = \alpha(\theta - X_t)\,dt + \sigma\,dW_t$ par sch\'ema exact, partant de
+$x_0$. \\ Arguments : {\tt ornstein\_uhlenbeck(x0,alpha,theta,sigma,T,n)}.\\
+On tape :
+\begin{center}{\tt ornstein\_uhlenbeck(5,0.5,2,2,20,500)}\end{center}
+On obtient une trajectoire partant de $5$ et oscillant autour du niveau d'\'equilibre
+$\theta = 2$.\\
+Avec $\sigma = 0$, l'\'evolution est d\'eterministe et tend vers $\theta$ :\\
+On tape :
+\begin{center}{\tt ornstein\_uhlenbeck(3,1,5,0,1,4)[4]}\end{center}
+On obtient $5 + (3-5)\, e^{-1} \approx 4.264241$.
+
+\item{\tt cir} simule le mod\`ele de Cox-Ingersoll-Ross
+$dR_t = a(b - R_t)\,dt + \sigma\sqrt{R_t}\,dW_t$ , partant de
+$x_0 \geq 0$, par sch\'ema d'Euler \`a troncature compl\`ete. Le processus reste
+positif et revient vers le niveau $b$ \`a la vitesse $a$.
+Arguments : {\tt cir(x0,a,b,sigma,T,n)}.\\
+On tape :
+\begin{center}{\tt cir(0.03,1,0.04,0.1,1,250)}\end{center}
+On obtient une trajectoire de taux ($251$ valeurs) revenant vers $b = 0.04$ et
+restant positive (ici $2ab = 0.08 \geq \sigma^2 = 0.01$, condition de Feller
+satisfaite).
+
+\item{\tt sde\_euler} simule par le sch\'ema d'Euler-Maruyama une EDS g\'en\'erale
+$dX_t = b(t,x)\,dt + \sigma(t,x)\,dW_t$ de condition initiale $x_0$, o\`u {\tt b} et
+{\tt sigma} sont des \emph{expressions} en les variables $t$ et $x$ (qui doivent
+\^etre libres ; utiliser {\tt purge(t,x)} au besoin).
+Arguments : {\tt sde\_euler(b,sigma,x0,T,n)}.\\
+On tape :
+\begin{center}{\tt sde\_euler(0.1*x,0.2*x,100,1,250)}\end{center}
+On obtient une trajectoire de l'EDS $dX = 0.1\,X\,dt + 0.2\,X\,dW$, c'est-\`a-dire un
+MBG de param\`etres $\mu = 0.1$, $\sigma = 0.2$ (\`a comparer avec {\tt gbm}).
+
+\item{\tt sde\_milstein} simule la m\^eme EDS g\'en\'erale par le sch\'ema de
+Milstein, plus pr\'ecis (ordre fort $1$). La d\'eriv\'ee $\partial_x \sigma$ du terme
+correctif est calcul\'ee symboliquement par {\tt derive}.
+Arguments : {\tt sde\_milstein(b,sigma,x0,T,n)}.\\
+On tape :
+\begin{center}{\tt sde\_milstein(0.1*x,0.2*x,100,1,250)}\end{center}
+On obtient une trajectoire de la m\^eme EDS, simul\'ee avec une meilleure pr\'ecision
+qu'{\tt sde\_euler} \`a pas \'egal.
+
+\end{itemize}
+
+\section{Mod\`ele de Black-Scholes : {\tt bs\_price, bs\_delta, bs\_gamma, bs\_vega, bs\_theta, bs\_rho, bs\_greeks, bs\_implied\_vol}%
+  \texorpdfstring{\ {\small[\href{https://fr.wikipedia.org/wiki/Mod\%C3\%A8le_Black-Scholes}{r\'ef.}, \href{https://www.ressources-actuarielles.net/ext/isfa/fp-isfa.nsf/2b0481298458b3d1c1256f8a0024c478/b3c45bb76453aafcc12574af004df811/$FILE/tankov.pdf}{vol.\ implicite}]}}{}}
+\label{sec:bs}
+
+Ces commandes calculent le prix, les sensibilit\'es (\emph{Greeks}) et la volatilit\'e
+implicite d'une option europ\'eenne dans le mod\`ele de Black-Scholes, en convention
+march\'e. Ici $T$ d\'esigne le temps restant jusqu'\`a la maturit\'e.
+
+\medskip\noindent\textbf{Options : vocabulaire de base.}
+Une \emph{option} est un contrat financier qui donne \`a son d\'etenteur le \emph{droit},
+mais non l'obligation, d'acheter ou de vendre un actif, le \emph{sous-jacent}, dont on
+note $S_t$ le prix \`a l'instant $t$, \`a un prix fix\'e d'avance, le \emph{strike} $K$,
+\`a une date future, la \emph{maturit\'e} $T$. Une option d'achat s'appelle un \emph{call},
+une option de vente un \emph{put}. L'option est dite \emph{europ\'eenne} lorsque ce droit
+ne peut s'exercer qu'\`a la date $T$ (et non avant).
+
+\`A la maturit\'e, le d\'etenteur n'exerce son droit que si cela lui est favorable.
+Pour un call : si le prix du sous-jacent $S_T$ d\'epasse le strike $K$, il ach\`ete \`a $K$
+un actif qui vaut $S_T$ et gagne $S_T - K$ ; sinon il n'exerce pas et ne gagne rien. Son
+gain \`a maturit\'e, le \emph{payoff}, est donc $\max(S_T - K,\, 0)$, que l'on note
+$(S_T - K)^+$. Sym\'etriquement, le payoff d'un put est $(K - S_T)^+$. La question
+centrale est : combien vaut ce droit aujourd'hui ? Ce prix, pay\'e \`a la souscription du
+contrat, s'appelle la \emph{prime} de l'option, et c'est lui que calcule {\tt bs\_price}.
+
+\medskip\noindent\textbf{Valorisation risque-neutre.}
+On suppose que le sous-jacent suit un mouvement brownien g\'eom\'etrique (cf. {\tt gbm}),
+o\`u $\sigma$ est la \emph{volatilit\'e} (l'amplitude des fluctuations) et $W$ un mouvement
+brownien. La th\'eorie montre qu'il existe une probabilit\'e dite \emph{risque-neutre} sous
+laquelle ce sous-jacent suit $dS_t = r S_t\, dt + \sigma S_t\, dW_t$, c'est-\`a-dire que sa
+tendance moyenne est le \emph{taux sans risque} $r$ (le taux d'un placement sans al\'ea).
+Sous cette probabilit\'e, le prix d'une option de payoff $h(S_T)$ est l'esp\'erance
+\emph{actualis\'ee} de ce flux :
+$$\text{prix} = e^{-rT}\, \mathbb{E}^{\mathbb{Q}}[\, h(S_T)\,].$$
+Le facteur $e^{-rT}$ \emph{actualise} le flux futur : un euro re\c{c}u en $T$ vaut
+$e^{-rT}$ euro aujourd'hui. Pour un call $h(S_T) = (S_T - K)^+$ et pour un put
+$h(S_T) = (K - S_T)^+$, cette esp\'erance se calcule explicitement, ce qui donne la formule
+de Black-Scholes ci-dessous.
+
+\medskip\noindent\textbf{Formule de Black-Scholes.}
+On pose
+$$d_1 = \frac{\ln(S/K) + (r + \tfrac{1}{2}\sigma^2)\,T}{\sigma\sqrt{T}}, \qquad
+  d_2 = d_1 - \sigma\sqrt{T},$$
+et, en notant $N$ la fonction de r\'epartition de la loi normale standard et $\varphi$
+sa densit\'e :
+$$C = S\, N(d_1) - K\, e^{-rT} N(d_2), \qquad
+  P = K\, e^{-rT} N(-d_2) - S\, N(-d_1).$$
+Call et put sont reli\'es par la \emph{parit\'e call-put} :
+$C - P = S - K\, e^{-rT}$.
+
+\medskip\noindent\textbf{Les Greeks.}
+Une fois l'option en portefeuille, on veut savoir comment sa valeur r\'eagit aux
+mouvements du march\'e. C'est le r\^ole des \emph{Greeks} : chacun mesure de combien le
+prix de l'option varie lorsqu'un param\`etre (prix du sous-jacent, volatilit\'e, temps,
+taux) bouge l\'eg\`erement, d'o\`u le nom de sensibilit\'es. Math\'ematiquement,
+chaque Greek est une d\'eriv\'ee partielle du prix par rapport \`a un param\`etre. On
+donne les formules pour le call (le put s'en d\'eduit). Les cinq classiques sont :
+\begin{itemize}
+  \item \emph{Delta} $\Delta = \dfrac{\partial C}{\partial S} = N(d_1)$ : sensibilit\'e
+  au prix du sous-jacent ; c'est aussi le nombre d'actifs \`a d\'etenir pour couvrir
+  l'option.
+  \item \emph{Gamma} $\Gamma = \dfrac{\partial^2 C}{\partial S^2} =
+  \dfrac{\varphi(d_1)}{S\sigma\sqrt{T}}$ : convexit\'e, soit la vitesse \`a laquelle le
+  delta varie (identique pour call et put).
+  \item \emph{Vega} $\nu = \dfrac{\partial C}{\partial \sigma} = S\,\varphi(d_1)\sqrt{T}$
+  : sensibilit\'e \`a la volatilit\'e (identique pour call et put).
+  \item \emph{Theta} $\Theta = \dfrac{\partial C}{\partial t} =
+  -\dfrac{S\,\varphi(d_1)\,\sigma}{2\sqrt{T}} - rK\,e^{-rT}N(d_2)$ : d\'ecroissance
+  temporelle de la valeur de l'option.
+  \item \emph{Rho} $\rho = \dfrac{\partial C}{\partial r} = K\,T\,e^{-rT}N(d_2)$ :
+  sensibilit\'e au taux d'int\'er\^et.
+\end{itemize}
+Tous les Greeks \'etant des d\'eriv\'ees du \emph{m\^eme} prix $C$, ils sont obtenus
+ici par \emph{d\'erivation symbolique} (commande {\tt derive}) de la formule de prix,
+ce qui garantit leur coh\'erence avec celle-ci.
+
+\medskip\noindent\textbf{Volatilit\'e implicite.}
+La volatilit\'e $\sigma$ est le seul param\`etre non observable. La \emph{volatilit\'e
+implicite} est la valeur de $\sigma$ telle que le prix du mod\`ele \'egale un prix
+donn\'e $C$ : on r\'esout $C_{BS}(\sigma) = C$.
+ 
+Cette fonction est strictement croissante en $\sigma$, car sa d\'eriv\'ee (le vega) est
+strictement positive,
+$$\frac{\partial C_{BS}}{\partial \sigma} = S\,\varphi(d_1)\sqrt{T} > 0,$$
+et elle varie de $\displaystyle\lim_{\sigma \to 0} C_{BS}(\sigma) = (S - K e^{-rT})^+$
+\`a $\displaystyle\lim_{\sigma \to \infty} C_{BS}(\sigma) = S$. L'\'equation admet donc
+une solution unique d\`es que $(S - K e^{-rT})^+ < C < S$ (les bornes d'arbitrage). On la r\'esout par la m\'ethode de Newton :
+$$\sigma_{n+1} = \sigma_n + \frac{C - C_{BS}(\sigma_n)}{\partial C_{BS}/\partial\sigma\,(\sigma_n)}.$$
+Le point de d\'epart est choisi pour garantir la convergence. La d\'eriv\'ee seconde
+$$\frac{\partial^2 C_{BS}}{\partial \sigma^2}
+  = \frac{S\,\varphi(d_1)\sqrt{T}}{\sigma}
+    \left( \frac{(\ln(S/K) + rT)^2}{\sigma^2 T} - \frac{\sigma^2 T}{4} \right)$$
+s'annule en $\sigma_0 = \sqrt{2\,|\ln(S/K) + rT| / T}$ : la fonction
+$\sigma \mapsto C_{BS}(\sigma)$ est convexe sur $(0, \sigma_0)$ puis concave sur
+$(\sigma_0, +\infty)$. On initialise donc l'it\'eration \`a ce point d'inflexion
+$\sigma_0$, ce qui assure une convergence vers la solution.
+ 
+
+\medskip
+Dans toutes ces commandes, l'argument optionnel final {\tt "call"} ou {\tt "put"}
+choisit le type d'option (par d\'efaut {\tt "call"}).
+
+\begin{itemize}
+
+\item{\tt bs\_price} calcule le prix Black-Scholes d'un call ou d'un put.\\
+On tape :
+\begin{center}{\tt bs\_price(100,100,0.05,0.2,1)}\end{center}
+On obtient le prix du call, environ {\tt 10.4506}.\\
+On tape :
+\begin{center}{\tt bs\_price(100,100,0.05,0.2,1,"put")}\end{center}
+On obtient le prix du put, environ {\tt 5.5735}. On v\'erifie la parit\'e call-put :
+$10.4506 - 5.5735 = 4.8771 = 100 - 100\,e^{-0.05}$.
+
+\item{\tt bs\_delta} calcule le delta $\partial C/\partial S$.\\
+On tape :
+\begin{center}{\tt bs\_delta(100,100,0.05,0.2,1)}\end{center}
+On obtient environ {\tt 0.6368} ($= N(d_1)$). Pour un put, {\tt bs\_delta(100,100,0.05,0.2,1,"put")}
+donne environ {\tt -0.3632} ($= N(d_1)-1$).
+
+\item{\tt bs\_gamma} calcule le gamma $\partial^2 C/\partial S^2$ (identique call/put).\\
+On tape :
+\begin{center}{\tt bs\_gamma(100,100,0.05,0.2,1)}\end{center}
+On obtient environ {\tt 0.0188}.
+
+\item{\tt bs\_vega} calcule le vega $\partial C/\partial \sigma$ (identique call/put).\\
+On tape :
+\begin{center}{\tt bs\_vega(100,100,0.05,0.2,1)}\end{center}
+On obtient environ {\tt 37.52} (variation de prix pour une hausse d'une unit\'e de
+volatilit\'e).
+
+\item{\tt bs\_theta} calcule le theta $\partial C/\partial t$.\\
+On tape :
+\begin{center}{\tt bs\_theta(100,100,0.05,0.2,1)}\end{center}
+On obtient environ {\tt -6.414} (perte de valeur par unit\'e de temps ; n\'egatif pour
+une position longue).
+
+\item{\tt bs\_rho} calcule le rho $\partial C/\partial r$.\\
+On tape :
+\begin{center}{\tt bs\_rho(100,100,0.05,0.2,1)}\end{center}
+On obtient environ {\tt 53.23} pour le call.
+
+\item{\tt bs\_greeks} est la fonction fa\c{c}ade : elle renvoie un tableau de paires
+{\tt ["nom", valeur]} regroupant le prix et les cinq Greeks.\\
+On tape :
+\begin{center}{\tt bs\_greeks(100,100,0.05,0.2,1)}\end{center}
+On obtient :
+\begin{center}
+\begin{tabular}{ll}
+{\tt prix}  & {\tt 10.4506} \\
+{\tt delta} & {\tt 0.6368} \\
+{\tt gamma} & {\tt 0.0188} \\
+{\tt vega}  & {\tt 37.52} \\
+{\tt theta} & {\tt -6.414} \\
+{\tt rho}   & {\tt 53.23} \\
+\end{tabular}
+\end{center}
+
+\item{\tt bs\_implied\_vol} calcule la volatilit\'e implicite, c'est-\`a-dire la valeur
+de $\sigma$ telle que le prix Black-Scholes \'egale le prix donn\'e, par la m\'ethode
+de Newton. Arguments : {\tt bs\_implied\_vol(prix,S,K,r,T [,type])} (noter l'absence de
+$\sigma$, qui est l'inconnue cherch\'ee).\\
+On tape :
+\begin{center}{\tt bs\_implied\_vol(10.4506,100,100,0.05,1)}\end{center}
+On obtient environ {\tt 0.2}, retrouvant la volatilit\'e qui avait servi \`a calculer
+ce prix.
+
+\end{itemize}
+
+\section{Estimation Monte-Carlo : {\tt mc\_estimate, mc\_mean, mc\_bs\_price}}
+\index{mc\_estimate}\index{mc\_mean}\index{mc\_bs\_price}
+\label{sec:mc}
+Ces commandes estiment une esp\'erance $\mathbb{E}[g(X)]$ par \emph{simulation}
+(m\'ethode de Monte-Carlo). Le principe est : on remplace
+l'esp\'erance par une moyenne
+d'\'echantillon.
+
+\medskip\noindent\textbf{Estimateur et erreur.}
+On veut calculer $I = \mathbb{E}[g(X)]$ pour $X$ de loi donn\'ee. On tire
+$X_1, \ldots, X_N$ ind\'ependants de m\^eme loi et on forme l'estimateur
+$$\hat{I}_N = \frac{1}{N} \sum_{i=1}^N g(X_i).$$
+La loi des grands nombres assure $\hat{I}_N \to I$ presque s\^urement, et
+l'estimateur est \emph{sans biais} : $\mathbb{E}[\hat{I}_N] = I$ pour tout $N$.
+Le th\'eor\`eme central limite quantifie l'erreur : si
+$\sigma^2 = \mathrm{Var}(g(X)) < \infty$, alors $\hat{I}_N - I$ se comporte comme
+une gaussienne d'\'ecart-type $\sigma/\sqrt{N}$. On estime $\sigma$ par
+l'\'ecart-type empirique
+$$\hat{\sigma}^2 = \frac{1}{N-1} \sum_{i=1}^N \big(g(X_i) - \hat{I}_N\big)^2,$$
+d'o\`u l'\emph{erreur standard} $\mathrm{SE} = \hat{\sigma}/\sqrt{N}$ et
+l'\emph{intervalle de confiance \`a 95\%}
+$$\hat{I}_N \;\pm\; 1.96\,\frac{\hat{\sigma}}{\sqrt{N}}.$$
+Cet intervalle est \emph{asymptotique} : il d\'ecoule du th\'eor\`eme central limite,
+et n'est donc valable que pour $N$ grand et sous l'hypoth\`ese d'une variance finie,
+$\mathrm{Var}(g(X)) < \infty$. Ce n'est pas la loi des $g(X_i)$ qui est suppos\'ee
+gaussienne, mais celle de leur moyenne $\hat{I}_N$, qui le devient lorsque $N$ cro\^it.
+La convergence en $1/\sqrt{N}$ est lente : diviser l'erreur par $10$ demande $100$
+fois plus de tirages.
+
+\medskip\noindent\textbf{Tableau renvoy\'e.}
+Ces commandes renvoient un tableau de paires
+{\tt ["nom", valeur]} :
+\begin{center}
+\begin{tabular}{ll}
+{\tt estimation} & $\hat{I}_N$, la moyenne empirique \\
+{\tt rayon\_ic}  & $h = 1.96\,\hat{\sigma}/\sqrt{N}$  \\
+{\tt ic\_bas}    & $\hat{I}_N - h$ \\
+{\tt ic\_haut}   & $\hat{I}_N + h$ \\
+{\tt erreur\_std}& $\hat{\sigma}/\sqrt{N}$ \\
+{\tt n}          & nombre de tirages $N$ \\
+\end{tabular}
+\end{center}
+
+\medskip\noindent\textbf{R\'eduction de variance : variables antith\'etiques.}
+\emph{Objectif.} L'erreur d'estimation vaut $1.96\,\sigma/\sqrt{N}$ : on ne peut la
+r\'eduire qu'en augmentant $N$ (co\^uteux) ou en diminuant la variance
+$\sigma^2$ , \`a $N$ fix\'e. La r\'eduction de variance
+exploite ce second levier : on construit un autre estimateur, toujours \emph{sans
+biais} (il vise la m\^eme valeur $I$), mais de variance plus petite et donc un
+intervalle de confiance plus \'etroit \`a co\^ut \'egal.
+
+\emph{Principe.} Les variables antith\'etiques compensent chaque tirage par son
+\emph{symétrique}. Pour $Z \sim \mathcal{N}(0,1)$, au lieu de tirages ind\'ependants, on
+tire $N$ \emph{paires} en utilisant chaque $Z_i$ \emph{et} son oppos\'e $-Z_i$, et
+on moyenne
+$$Y_i = \frac{g(Z_i) + g(-Z_i)}{2}.$$
+Comme $-Z$ a la m\^eme loi que $Z$ (la gaussienne standard est sym\'etrique autour
+de $0$), on a $\mathbb{E}[g(-Z)] = \mathbb{E}[g(Z)]$ : l'estimateur reste sans biais.
+
+\emph{Pourquoi la variance baisse.} La variance d'une paire vaut
+$$\mathrm{Var}(Y_i) = \frac{\sigma^2}{2}\big(1 + \rho\big), \qquad
+  \rho = \mathrm{Corr}\big(g(Z), g(-Z)\big),$$
+\`a comparer \`a $\sigma^2/2$ pour deux tirages ind\'ependants ($\rho = 0$) : on gagne
+d\`es que la corr\'elation $\rho$ est \emph{n\'egative}.
+
+\emph{Quand \c{c}a marche ?} Si $g$ est \emph{monotone}, $g(Z)$ et $g(-Z)$ varient en
+sens oppos\'es, donc $\rho < 0$ : l'IC se resserre \`a co\^ut \'egal ($2N$
+\'evaluations de $g$). En
+revanche, si $g$ est \emph{sym\'etrique} (paire), alors $g(Z) = g(-Z)$, donc
+$\rho = +1$ : les deux moiti\'es de chaque paire sont identiques, la technique
+n'apporte rien et l'erreur augmente
+d'un facteur $\sqrt{2}$. Elle est donc \`a employer sur
+des $g$ monotones.
+
+\emph{Selon la loi.} Le miroir $-Z$ n'a la m\^eme loi que $Z$ que pour une loi
+\emph{sym\'etrique autour de $0$}, comme la normale ; c'est pourquoi ces deux
+commandes sont fix\'ees \`a $\mathcal{N}(0,1)$ (le cas du mouvement brownien). Pour une loi quelconque, l'antith\'etique s'obtient via l'inverse de la
+fonction de r\'epartition, $F^{-1}(1-U)$, \`a partir du m\^eme tirage uniforme $U$.
+
+
+\begin{itemize}
+\item{\tt mc\_estimate} est le noyau : il prend une \emph{liste de r\'ealisations}
+$[Y_1, \ldots, Y_N]$ d\'ej\`a calcul\'ees et renvoie l'estimation de leur moyenne
+avec l'intervalle de confiance.\\
+On tape :
+\begin{center}{\tt mc\_estimate([2,4,4,4,5,5,7,9])}\end{center}
+On obtient un tableau d'estimation {\tt 5} avec son rayon d'IC, son erreur
+standard et {\tt n = 8}. Pour une liste constante, le rayon de l'IC est nul :\\
+On tape :
+\begin{center}{\tt mc\_estimate([1,1,1,1])[1][1]}\end{center}
+On obtient {\tt 0}.
+\item{\tt mc\_mean} estime $\mathbb{E}[g(X)]$ pour $X \sim {\tt loi(params)}$ par
+$N$ tirages : {\tt g} est une expression en la variable {\tt x}, {\tt loi} une loi
+de Giac ({\tt normald}, {\tt uniformd}, \ldots) et {\tt params} la liste de ses
+param\`etres.
+Arguments : {\tt mc\_mean(g,x,loi,params,N)}.\\
+On tape (avec {\tt X} normale standard, $\mathbb{E}[X^2] = 1$) :
+\begin{center}{\tt mc\_mean(x*x,x,normald,[0,1],100000)}\end{center}
+On obtient une estimation proche de {\tt 1}, dont l'intervalle de confiance
+contient $1$. 
+\item{\tt mc\_bs\_price} est l'application à la finance : le prix d'une option
+europ\'eenne par Monte-Carlo. Sous la probabilit\'e risque-neutre,
+$S_T = S\,e^{(r - \sigma^2/2)T + \sigma\sqrt{T}\,Z}$ avec $Z \sim \mathcal{N}(0,1)$,
+et le prix vaut $e^{-rT}\,\mathbb{E}[\,\text{payoff}(S_T)\,]$. La commande tire $N$
+normales, actualise le payoff de chacune, et appelle le m\^eme noyau.
+Arguments : {\tt mc\_bs\_price(S,K,r,sigma,T,N [,type])} (par d\'efaut {\tt "call"}).\\
+On tape :
+\begin{center}{\tt mc\_bs\_price(100,100,0.05,0.2,1,100000)}\end{center}
+On obtient une estimation du prix du call dont l'intervalle de confiance contient
+la valeur exacte {\tt bs\_price(100,100,0.05,0.2,1)} $\approx 10.4506$ .
+\item{\tt mc\_mean\_antithetic} estime $\mathbb{E}[g(Z)]$ pour $Z \sim
+\mathcal{N}(0,1)$ par $N$ paires antith\'etiques ({\tt g} expression en {\tt x}).
+Arguments : {\tt mc\_mean\_antithetic(g,x,N)}.\\
+On tape (avec $\mathbb{E}[e^Z] = e^{1/2} \approx 1.6487$, $g$ monotone) :
+\begin{center}{\tt mc\_mean\_antithetic(exp(x),x,50000)}\end{center}
+On obtient une estimation proche de {\tt 1.6487}. \`A co\^ut \'egal ($2N$
+\'evaluations), son {\tt rayon\_ic} est nettement plus petit que celui de
+{\tt mc\_mean(exp(x),x,normald,[0,1],100000)}. Pour un {\tt g} lin\'eaire, la compensation est exacte :\\
+On tape :
+\begin{center}{\tt mc\_mean\_antithetic(x,x,1000)[1][1]}\end{center}
+On obtient {\tt 0} (chaque paire donne $(Z + (-Z))/2 = 0$, variance nulle).
+\item{\tt mc\_bs\_price\_antithetic} est la version antith\'etique de
+{\tt mc\_bs\_price} : $N$ paires $(Z,-Z)$, soit $2N$ trajectoires. Le payoff \'etant
+monotone en $Z$, l'intervalle de confiance est plus serr\'e que celui de
+{\tt mc\_bs\_price(...,2N)} \`a co\^ut \'egal.
+Arguments : {\tt mc\_bs\_price\_antithetic(S,K,r,sigma,T,N [,type])}.\\
+On tape :
+\begin{center}{\tt mc\_bs\_price\_antithetic(100,100,0.05,0.2,1,50000)}\end{center}
+On obtient une estimation du prix du call dont l'IC, plus \'etroit, contient
+{\tt bs\_price(100,100,0.05,0.2,1)} $\approx 10.4506$.
+\end{itemize}
+ 
+\section{Estimation des param\`etres des EDS : {\tt fit\_gbm, fit\_ou}}
+\index{fit\_gbm}\index{fit\_ou}
+\label{sec:fit}
+ 
+\medskip\noindent\textbf{Mouvement brownien g\'eom\'etrique.}
+La solution exacte donne des \emph{log-rendements} $r_k = \ln(S_{k+1}/S_k)$ qui sont
+i.i.d. gaussiens :
+$$r_k \sim \mathcal{N}(m, s^2), \qquad m = \Big(\mu - \tfrac{1}{2}\sigma^2\Big)\Delta,
+  \quad s^2 = \sigma^2 \Delta.$$
+où $\Delta = T /(taille - 1)$ le pas de temps qui se déduit de la trajectoire.
+Estimer $(\mu,\sigma)$ revient donc \`a estimer la moyenne et la variance d'un
+\'echantillon gaussien, puis \`a inverser :
+$$\hat{\sigma} = \frac{\hat{s}}{\sqrt{\Delta}}, \qquad
+  \hat{\mu} = \frac{\hat{m}}{\Delta} + \frac{\hat{s}^2}{2\Delta},$$
+o\`u $\hat{m}$ et $\hat{s}$ sont la moyenne et l'\'ecart-type empiriques des $r_k$.
+Les erreurs standard valent $\mathrm{SE}(\hat{\sigma}) = \hat{\sigma}/\sqrt{2n}$ et
+$\mathrm{SE}(\hat{\mu}) = \hat{\sigma}/\sqrt{T}$ (avec $n$ le nombre de rendements).
+ 
+\medskip\noindent\textbf{Ornstein-Uhlenbeck.}
+La transition est gaussienne, ce qui en fait une \emph{r\'egression
+lin\'eaire} :
+$$X_{k+1} = a + b\,X_k + \varepsilon_k, \qquad b = e^{-\alpha\Delta},
+  \quad a = \theta(1-b), \quad \mathrm{Var}(\varepsilon_k) = \sigma^2\,\frac{1-b^2}{2\alpha}.$$
+On ajuste $a$ et $b$ par moindres carr\'es (pente $\hat{b}$, ordonn\'ee $\hat{a}$,
+\'ecart-type r\'esiduel $\hat{\sigma}_\varepsilon$), puis on inverse :
+$$\hat{\alpha} = -\frac{\ln \hat{b}}{\Delta}, \qquad
+  \hat{\theta} = \frac{\hat{a}}{1 - \hat{b}}, \qquad
+  \hat{\sigma} = \hat{\sigma}_\varepsilon \sqrt{\frac{-2\ln\hat{b}}{\Delta\,(1 - \hat{b}^2)}}.$$
+ 
+\medskip\noindent\textbf{Tableau renvoy\'e et intervalles de confiance.}
+Chaque commande renvoie un tableau dont chaque ligne d\'ecrit un param\`etre :
+{\tt ["nom", estimation, ic\_bas, ic\_haut]}, o\`u $[{\tt ic\_bas}, {\tt ic\_haut}]$
+est l'intervalle de confiance \`a 95\%. Ces intervalles sont \emph{asymptotiques} :
+ils reposent sur la normalit\'e asymptotique de l'estimateur du maximum de
+vraisemblance, donc d'autant plus fiables que la trajectoire est longue.
+ 
+\begin{itemize}
+\item{\tt fit\_gbm} estime $(\mu,\sigma)$ d'un mouvement brownien g\'eom\'etrique \`a
+partir d'une trajectoire de prix et de l'horizon $T$.
+Arguments : {\tt fit\_gbm(trajectoire, T)}.\\
+On tape (on simule puis on r\'e-estime, pour v\'erifier) :
+\begin{center}{\tt fit\_gbm(gbm(100,0.1,0.2,1,250), 1)}\end{center}
+On obtient un tableau o\`u {\tt sigma} est proche de $0.2$ avec un intervalle
+\'etroit, et {\tt mu} proche de $0.1$ mais avec un intervalle \emph{large} (ici
+$T = 1$ est un horizon court, donc le drift est mal identifi\'e).
+\item{\tt fit\_ou} estime $(\alpha,\theta,\sigma)$ d'un processus d'Ornstein-Uhlenbeck
+\`a partir d'une trajectoire et de l'horizon $T$.
+Arguments : {\tt fit\_ou(trajectoire, T)}.\\
+On tape :
+\begin{center}{\tt fit\_ou(ornstein\_uhlenbeck(5,2,3,0.5,10,2000), 10)}\end{center}
+On obtient {\tt alpha} proche de $2$, {\tt theta} proche de $3$ et {\tt sigma}
+proche de $0.5$, chacun avec son intervalle de confiance.
+\end{itemize}
+ 
+
 
 \section{Les tests d'hypoth\`eses}
 \subsection{G\'en\'eralit\'es}

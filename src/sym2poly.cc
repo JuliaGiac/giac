@@ -828,6 +828,52 @@ namespace giac {
     return totally_converted;
   }
 
+  // false when g has a numeric value that is not real (its double has a nonzero
+  // imaginary part); a g with no numeric value is real by Giac's convention (a free x).
+  static bool sqrt_extract_real(const gen & g,GIAC_CONTEXT){
+    if (g.type<=_ZINT || g.type==_FRAC)
+      return true;
+    gen gv=evalf_double(evalf(g,1,contextptr),1,contextptr);
+    return gv.type!=_CPLX || is_exactly_zero(*(gv._CPLXptr+1));
+  }
+
+  // the argument of num, for the root pick of sym2rxrootnum. On the cut (the double of
+  // arg(evalf(num)) within 1e-9*pi of +-pi) the sign of a rounding imaginary part chose the side: z=acosh(-1/2) is
+  // ln((i*sqrt(3)-1)/2), whose evalf has a real part of -1e-15, so evalf(z^2) had arg -pi and simplify(sqrt(z^2)) took
+  // -z. An imaginary part recursive_normal proves 0 is a negative real, arg +pi; otherwise the sign of the imaginary
+  // part at Digits+20, +40, ... +1280 where it is clear of the rounding (more than 10^10 units of its last digit);
+  // undecided, the arg stays as evalf gave it.
+  static void rootnum_arg_at_cut(const gen & numprev,gen & numprevf,GIAC_CONTEXT){
+    gen t=evalf_double(numprevf,1,contextptr);
+    if (t.type!=_DOUBLE_ || !(std::abs(t._DOUBLE_val)>=3.141592653589793*(1-1e-9)))
+      return;
+    if (is_exactly_zero(recursive_normal(im(numprev,contextptr),contextptr))){
+      numprevf=evalf(cst_pi,1,contextptr);
+      return;
+    }
+    int save_decimal_digits=decimal_digits(contextptr);
+    for (int extra=20;extra<=1280;extra*=2){
+      int nd=save_decimal_digits+extra;
+      set_decimal_digits(nd,contextptr);
+      gen z,zr,zi;
+      try {
+	z=evalf(numprev,1,contextptr);
+	zr=re(z,contextptr);
+	zi=im(z,contextptr);
+      } catch (...) {
+	set_decimal_digits(save_decimal_digits,contextptr);
+	throw;
+      }
+      set_decimal_digits(save_decimal_digits,contextptr);
+      if ((zr.type!=_REAL && zr.type!=_DOUBLE_) || (zi.type!=_REAL && zi.type!=_DOUBLE_ && !is_exactly_zero(zi)))
+	return;
+      if (!is_strictly_greater(abs(zi,contextptr)*pow(gen(10),nd-10,contextptr),abs(zr,contextptr),contextptr))
+	continue;
+      numprevf=is_positive(zi,contextptr)?evalf(cst_pi,1,contextptr):-evalf(cst_pi,1,contextptr);
+      return;
+    }
+  }
+
   static bool sym2rxrootnum(vecteur & v,const vecteur & lv,gen & num,gen & tmpden,GIAC_CONTEXT){
     // make the polynomial X^d - num
     // check for irreducibility
@@ -866,8 +912,17 @@ namespace giac {
     gen prev=1;
     gen numprev=r2sym(rdiv(-v.back(),v.front(),contextptr),lv,contextptr),numprevf;
     bool hasevalf=has_evalf(numprev,numprevf,1,contextptr);
-    if (hasevalf)
+    if (hasevalf){
       numprevf=arg(numprevf,contextptr);
+      rootnum_arg_at_cut(numprev,numprevf,contextptr);
+    }
+    // a square root (d0 = 2) has two linear factors, X-r and X+r, and the arg test below scores
+    // both near 0 (d*arg(root)-arg(num) is a multiple of 2*pi for any root), so the rounding chose; and v becomes the
+    // chosen factor, so the second root was scored with d = 1. The fix of the argument below needs a root of unity
+    // that is no integer, so for d = 2 it never ran and the other root stayed. Now for d0 = 2 both are scored with d = 2
+    // and the principal root (N = 0: arg(root) = arg(num)/2) wins over the other.
+    const int d0=int(v.size())-1;
+    bool chosen_n0=false;
     for (f_it=f.begin();f_it!=f_itend;++f_it){
       polynome irr_p(f_it->fact);
       deg=irr_p.lexsorted_degree();
@@ -893,11 +948,20 @@ namespace giac {
 	  break;
 	}
 	int d=v.size()-1;
+	if (d0==2)
+	  d=2;
 	gen cur0=arg(numlvf,contextptr)-numprevf/gen(d),cur=d*cur0;
         gen N=_round(cur/cst_two_pi,contextptr);
         cur=cur-N*cst_two_pi;
         cur=abs(cur,contextptr);
-	if (is_greater(prev,cur,contextptr)){
+	bool better=is_greater(prev,cur,contextptr);
+	if (d0==2){
+	  bool n0=is_zero(N,contextptr);
+	  better=n0?(!chosen_n0 || better):(!chosen_n0 && better);
+	  if (better)
+	    chosen_n0=n0;
+	}
+	if (better){
           bool doit=!is_zero(N) && v.front()==1; //  && v.back()==-num; // extensions are not represented the same...
           for (int i=1;doit && i<d;++i){
             if (!is_zero(v[i]))
@@ -1151,6 +1215,13 @@ namespace giac {
       if (embeddings && Dl[embeddings].type==_VECT){
         Dl=vecteur(l.begin()+embeddings,l.end());
 	// Dl=*Dl[embeddings]._VECTptr;
+      }
+      // the d-th root of D^d*S is D times that of S for a real D (a negative D is turned
+      // just below) only; for a D with a complex value it is another root (normal(sqrt(acosh(-1/2)^3)) took L*sqrt(L)),
+      // so nothing is extracted and the root of num stays whole.
+      if (!sqrt_extract_real(r2e(D,Dl,contextptr),contextptr)){
+	S=*num._POLYptr;
+	D=polynome(plus_one,S.dim);
       }
       if (is_positive(r2e(-D,Dl,contextptr),contextptr)){
 	D=-D;
@@ -2489,7 +2560,12 @@ namespace giac {
       if (t==1){
 	vecteur w;
 	identificateur x(" x");
-	in_solve(symb_horner(*(r2sym(v,lt,ltend,contextptr)._VECTptr),x),x,w,1,contextptr); 
+        gen rv=r2sym(v,lt,ltend,contextptr);
+	if (rv.type!=_VECT)
+	  return rv;
+	in_solve(symb_horner(*rv._VECTptr,x),x,w,1,contextptr); 
+	if (w.empty()) // (interrupted)
+	  return undef;
 	if (w.size()==1)
 	  return w.front();
 #ifndef NO_STDEXCEPT
@@ -2961,6 +3037,13 @@ namespace giac {
 	if (jt->mult%2)
 	  s=s*jt->fact;
 	d=d*pow(jt->fact,jt->mult/2);
+      }
+      // sqrt(s*d^2/den^2) = abs(d)/abs(den)*sqrt(s) holds for a real d and den only;
+      // has_i above sees a literal i, so a d with a complex value and no i took it: acosh(-1/2) is
+      // ln(-1/2+sqrt(-1/2+1)*sqrt(-1/2-1)), and normal(sqrt(acosh(-1/2)^3)) gave abs(L)*sqrt(L), the other root.
+      if (!sqrt_extract_real(r2e(d,lv,contextptr),contextptr) || !sqrt_extract_real(r2e(den,lv,contextptr),contextptr)){
+	lin.pop_back();
+	continue;
       }
       // Extract integer content of s
       gen cont=Tppz<gen>(s);
@@ -4483,7 +4566,16 @@ namespace giac {
                           else
                             e=sqrt(sols[0],contextptr);
                           e=normalize_sqrt(e,contextptr);
-                          if (!is_positive(Eapproxshift,contextptr))
+                          // E-shift is +e or -e; is_positive is false for a complex E-shift, so
+                          // the root was negated whenever E was not real (normal(sqrt(2)+i*sqrt(3)) gave its negative,
+                          // normal(sqrt(-sqrt(2))) -sqrt(-sqrt(2))). Take the sign whose value is nearer E-shift; a root
+                          // with no numeric value keeps the real test.
+                          gen ef=_evalf(makesequence(e,extpar.digits),contextptr);
+                          if (ef.type==_DOUBLE_ || ef.type==_REAL || ef.type==_CPLX){
+                            if (is_greater(abs(Eapproxshift-ef,contextptr),abs(Eapproxshift+ef,contextptr),contextptr))
+                              e=-e;
+                          }
+                          else if (!is_positive(Eapproxshift,contextptr))
                             e=-e;
                           e += shift;
                           return true;
@@ -4561,6 +4653,16 @@ namespace giac {
     return true;
   }
 
+  // whether the rootof ext (the root alg_evalf selects) has the value r, at 100 digits
+  static bool rootof_is_value(const gen & ext,const gen & r,GIAC_CONTEXT){
+    gen R=accurate_evalf(ext,100);
+    if (R.type!=_REAL && R.type!=_CPLX && R.type!=_DOUBLE_)
+      return true; // no numeric value: keep Giac's choice
+    if (is_zero(R,contextptr))
+      return is_greater(1e-10,abs(r,contextptr),contextptr);
+    return is_greater(1e-10,abs(1-r/R,contextptr),contextptr);
+  }
+
   // returns 0 on failure, or n==v.size() on success
   // find Q algebraic extensions inside e, on success
   // rewrite e as E in terms of
@@ -4581,16 +4683,22 @@ namespace giac {
     v=lvar(e);
     vecteur vr,wr;
     // rewrite rootofs inside e
-    for (int i=0;i<v.size();++i){
-      if (v[i].is_symb_of_sommet(at_rootof)){
-        gen f=v[i]._SYMBptr->feuille;
+    // every rootof of e, also one inside a power or a function (lop, where lvar lists the power
+    // itself): the base of a power is written below in terms of the generator's variable, so a rootof left inside it
+    // lost its numerator polynomial (normal(sqrt(rootof([1,1],P))) was the root of the generator)
+    vecteur lr=lop(e,at_rootof);
+    for (int i=0;i<lr.size();++i){
+      if (lr[i].is_symb_of_sommet(at_rootof)){
+        gen f=lr[i]._SYMBptr->feuille;
         if (f.type==_VECT && f._VECTptr->size()==2){
-          vr.push_back(v[i]);
+          vr.push_back(lr[i]);
           gen p=f._VECTptr->front(),pmin=f._VECTptr->back();
           if (p.type==_VECT && pmin.type==_VECT && p._VECTptr->size()>=pmin._VECTptr->size())
             p=p%pmin;
-          pmin.subtype=_POLY1__VECT;
-          wr.push_back(horner(p,symbolic(at_rootof,pmin)));
+          // the generator as rootof([1,0],pmin), the form Giac's rootof() gives (alg_ext.cc rootof);
+          // with the one-argument rootof(pmin) written here before, _factors in the power branch below split x^2-rootof(pmin)
+          // and set the root to 1: normal(sqrt(rootof([1,0],P))) for the degree-6 P of 2^(1/3)+sqrt(3) gave 1
+          wr.push_back(horner(p,symbolic(at_rootof,makevecteur(makevecteur(1,0),pmin))));
         }
       }
     }
@@ -5199,6 +5307,14 @@ namespace giac {
       }
       ext=rootofallowed?algebraic_EXTension(makevecteur(1,0),pminv):rexact;
       r=_evalf(makesequence(rexact,extpar.digits),contextptr);
+      // rootof([1,0],pminv) is the root of pminv that alg_evalf selects (the largest real part),
+      // and the generator's value is r, which may be another root: normal(sqrt(10^(1/3)-sqrt(6))) was written with the
+      // real root of a degree-12 pminv, 2.1457 (right 0.5432*i). As in the check of the RUR branch below (#else), a
+      // generator that is not that root is not written as a rootof: the answer keeps the radicals of v.
+      if (rootofallowed && !rootof_is_value(ext,r,contextptr)){
+        rootofallowed=false;
+        ext=rexact;
+      }
       nums=vecteur(G._VECTptr->begin()+4,G._VECTptr->end());
       // rewrite E as a rational frac in var, replace vars by nums/diffpmin
       pmin=horner(pminv,var);
@@ -5268,6 +5384,14 @@ namespace giac {
       }
       ext=rootofallowed?algebraic_EXTension(makevecteur(1,0),pminv):rexact;
       r=_evalf(makesequence(rexact,extpar.digits),contextptr);
+      // rootof([1,0],pminv) is the root of pminv that alg_evalf selects (the largest real part),
+      // and the generator's value is r, which may be another root: normal(sqrt(10^(1/3)-sqrt(6))) was written with the
+      // real root of a degree-12 pminv, 2.1457 (right 0.5432*i). As in the check of the RUR branch below (#else), a
+      // generator that is not that root is not written as a rootof: the answer keeps the radicals of v.
+      if (rootofallowed && !rootof_is_value(ext,r,contextptr)){
+        rootofallowed=false;
+        ext=rexact;
+      }
       nums=vecteur(G._VECTptr->begin()+4,G._VECTptr->end());
       // rewrite E as a rational frac in var, replace vars by nums/diffpmin
       pmin=horner(pminv,var);

@@ -19,7 +19,7 @@
 
 using namespace std;
 #ifdef HAVE_UNISTD_H
-#if !defined NUMWORKS && !defined HP39
+#if !defined NUMWORKS && !defined HP39 && !defined HPG1
 #include <dirent.h>
 #endif
 #include <sys/stat.h>
@@ -3105,6 +3105,11 @@ namespace giac {
     }
     return undef;
   }
+  // ascsort set nonreal, an element's evalf is no real float (a complex, a NaN, undef, a name in a matrix); the
+  // order has no place for it (stock sorted it as 0: median([1+i,2+i,3+i]) was 0.0, quartile1([1,2,3,4,5,6.0+i]) 1.0)
+  static gen ascsort_nonreal_err(const char * f){
+    return gensizeerr(string(f)+gettext(": the data must be real numbers"));
+  }
   gen _median(const gen & g,GIAC_CONTEXT){
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     vecteur v(gen2vecteur(g));
@@ -3115,13 +3120,21 @@ namespace giac {
 	islesscomplexthanf_sort(v.begin(),v.end());
 	return v[int(std::ceil(v.size()/2.0))-1]; // v[(v.size()-1)/4];
       }
-      matrice mt=mtran(ascsort(mtran(vecteur(1,v)),true));
+      bool nonreal;
+      matrice mt=ascsort(mtran(vecteur(1,v)),true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("median");
+      mt=mtran(mt);
       if ( (calc_mode(contextptr)==1 || abs_calc_mode(contextptr)==38) && !v.empty() && !(v.size()%2))
 	return (mt[v.size()/2][0]+mt[v.size()/2-1][0])/2;
       return mt[int(std::ceil(v.size()/2.0))-1][0];
     }
-    else
-      v=ascsort(v,true);
+    else {
+      bool nonreal;
+      v=ascsort(v,true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("median");
+    }
     v=mtran(v);
     if ( (calc_mode(contextptr)==1 || abs_calc_mode(contextptr)==38) && !v.empty() && !(v.size()%2))
       return (v[v.size()/2]+v[v.size()/2-1])/2;
@@ -3141,10 +3154,19 @@ namespace giac {
 	islesscomplexthanf_sort(v.begin(),v.end());
 	return v[int(std::ceil(v.size()/4.0))-1]; // v[(v.size()-1)/4];
       }
-      return mtran(ascsort(mtran(vecteur(1,v)),true))[int(std::ceil(v.size()/4.0))-1][0];
+      bool nonreal;
+      matrice mt=ascsort(mtran(vecteur(1,v)),true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("quartile1");
+      mt=mtran(mt);
+      return mt[int(std::ceil(v.size()/4.0))-1][0];
     }
-    else
-      v=ascsort(v,true);
+    else {
+      bool nonreal;
+      v=ascsort(v,true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("quartile1");
+    }
     v=mtran(v);
     return v[int(std::ceil(v.size()/4.0))-1]; // v[(v.size()-1)/4];
   }
@@ -3162,10 +3184,19 @@ namespace giac {
 	islesscomplexthanf_sort(v.begin(),v.end());
 	return v[int(std::ceil(3*v.size()/4.0))-1]; // v[(v.size()-1)/4];
       }
-      return mtran(ascsort(mtran(vecteur(1,v)),true))[int(std::ceil(3*v.size()/4.0))-1][0];
+      bool nonreal;
+      matrice mt=ascsort(mtran(vecteur(1,v)),true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("quartile3");
+      mt=mtran(mt);
+      return mt[int(std::ceil(3*v.size()/4.0))-1][0];
     }
-    else
-      v=ascsort(v,true);
+    else {
+      bool nonreal;
+      v=ascsort(v,true,nonreal);
+      if (nonreal)
+	return ascsort_nonreal_err("quartile3");
+    }
     v=mtran(v);
     return v[int(std::ceil(3*v.size()/4.0))-1]; // v[(3*(v.size()-1))/4];
   }
@@ -3192,7 +3223,7 @@ namespace giac {
     bool vect=v.back().type==_VECT;
     vecteur w=gen2vecteur(v.back()),res;
     v=*v.front()._VECTptr;
-    bool matrix=true;
+    bool matrix=true,nonreal;
     if (!ckmatrix(v)){
       matrix=false;
       if (!is_fully_numeric(evalf(v,1,contextptr))){
@@ -3206,10 +3237,12 @@ namespace giac {
 	}
 	return vect?res:res.front(); 
       }
-      v=ascsort(mtran(vecteur(1,v)),true);
+      v=ascsort(mtran(vecteur(1,v)),true,nonreal);
     }
     else
-      v=ascsort(v,true);
+      v=ascsort(v,true,nonreal);
+    if (nonreal)
+      return ascsort_nonreal_err("quantile");
     v=mtran(v);
     for (unsigned j=0;j<w.size();++j){
       gen tmp=evalf_double(w[j],1,contextptr);
@@ -3233,16 +3266,19 @@ namespace giac {
     vecteur v(gen2vecteur(g));
     if (g.type==_VECT && g.subtype==_SEQ__VECT && v.size()==2)
       return makevecteur(freq_quantile(v,0.0,contextptr),freq_quantile(v,0.25,contextptr),freq_quantile(v,0.5,contextptr),freq_quantile(v,0.75,contextptr),freq_quantile(v,1.0,contextptr));
+    bool nonreal;
     if (!ckmatrix(v)){
       if (!is_fully_numeric(evalf(v,1,contextptr))){
 	islesscomplexthanf_sort(v.begin(),v.end());
 	int s=int(v.size());
 	return makevecteur(v[0],v[int(std::ceil(s/4.))-1],v[int(std::ceil(s/2.))-1],v[int(std::ceil(3*s/4.))-1],v[s-1]);
       }
-      v=ascsort(mtran(vecteur(1,v)),true);
+      v=ascsort(mtran(vecteur(1,v)),true,nonreal);
     }
     else
-      v=ascsort(v,true);
+      v=ascsort(v,true,nonreal);
+    if (nonreal)
+      return ascsort_nonreal_err("quartiles");
     v=mtran(v);
     int s=int(v.size());
     if (s==0)
@@ -3706,6 +3742,13 @@ static define_unary_function_eval (__variance,&_variance,_variance_s);
     }
     else {
       gv=genpoint2vecteur(g,contextptr);
+      if (!gv._VECTptr->empty() && gv._VECTptr->front().type!=_VECT && gv._VECTptr->size()%2==0){
+        vecteur & v=*gv._VECTptr;
+        vecteur w; w.reserve(v.size()/2);
+        for (int i=0;i<v.size();i+=2)
+          w.push_back(makevecteur(v[i],v[i+1]));
+        gv=w;
+      }
       if (!ckmatrix(gv) || gv._VECTptr->empty()){
 	gv=gensizeerr(contextptr);
 	return;
@@ -4576,12 +4619,12 @@ static define_unary_function_eval (__parabolic_interpolate,&_parabolic_interpola
     if (ckmatrix(v)){
       int s=int(v.front()._VECTptr->size());
       if (s==1)
-	w=*evalf_double(mtran(v)[0],1,contextptr)._VECTptr;
+	w=gen2vecteur(evalf_double(mtran(v)[0],1,contextptr));
       else
 	return vector<double>(0);
     }
     else
-      w=*evalf_double(v,1,contextptr)._VECTptr;
+      w=gen2vecteur(evalf_double(v,1,contextptr));
     // vector will be sorted keeping only DOUBLE data
     int s=int(w.size());
     vector<double> w1;
@@ -4609,7 +4652,7 @@ static define_unary_function_eval (__parabolic_interpolate,&_parabolic_interpola
 	matrice tmp=data;
 	gen_sort_f(tmp.begin(),tmp.end(),first_ascend_sort);
 	tmp=mtran(tmp);
-	vecteur tmpval=*evalf_double(tmp[0],1,contextptr)._VECTptr;
+	vecteur tmpval=gen2vecteur(evalf_double(tmp[0],1,contextptr));
 	vecteur tmpeff=*tmp[1]._VECTptr;
 	if (tmpval.front().type!=_DOUBLE_ || tmpval.back().type!=_DOUBLE_)
 	  return vecteur(1,undef);
@@ -4961,7 +5004,7 @@ static define_unary_function_eval (__center2interval,&_center2interval,_center2i
 	y=subst(res,vx_var,i,false,contextptr);
         maxh=max(maxh,y,contextptr);
 	vecteur w=makevecteur(i-.5,i+.5,i+.5+cst_i*y,i-.5+cst_i*y);
-	w.push_back(w.front());
+	gen w0(w.front()); w.push_back(w0);
 	v.push_back(pnt_attrib(gen(w,_GROUP__VECT),attributs,contextptr));
         v.push_back(_segment(makevecteur(i-.5,i-.5+cst_i*y),contextptr));
         v.push_back(_segment(makevecteur(i-.5+cst_i*y,i+.5+cst_i*y),contextptr));
@@ -6904,7 +6947,7 @@ static define_unary_function_eval (__os_version,&_os_version,_os_version_s);
     int n=int(A.size());
     matrice B(A);
     vecteur D(n);
-    vecteur b=*evalf_double(b_orig,1,contextptr)._VECTptr;
+    vecteur b=gen2vecteur(evalf_double(b_orig,1,contextptr));
     for (int i=0;i<n;++i){
       vecteur Ai=*evalf(A[i],1,contextptr)._VECTptr;
       D[i]=Ai[i];
@@ -6935,7 +6978,7 @@ static define_unary_function_eval (__os_version,&_os_version,_os_version_s);
     int n=int(A.size());
     double invomega=1/omega;
     matrice L(n),U(n);
-    vecteur b=*evalf_double(b_orig,1,contextptr)._VECTptr;
+    vecteur b=gen2vecteur(evalf_double(b_orig,1,contextptr));
     for (int i=0;i<n;++i){
       vecteur Ai=*evalf(A[i],1,contextptr)._VECTptr;
       L[i]=vecteur(Ai.begin(),Ai.begin()+i); 
@@ -9159,7 +9202,11 @@ static define_unary_function_eval (__os_version,&_os_version,_os_version_s);
     int plot=0;
 #endif
     bool return_tabvar=false,return_equation=false,return_coordonnees=false;
+#ifdef KHICAS
+    int do_inflex_tabsign=0;
+#else
     int do_inflex_tabsign=1;
+#endif
     for (int i=0;i<s;++i){
       if (v[i]==at_sign){
 	v.erase(v.begin()+i);
@@ -10011,8 +10058,9 @@ void sync_screen(){}
 
   void draw_polygon(vector< vector<int> > & v1,int color,GIAC_CONTEXT){
     if (v1.empty()) return;
-    if (!(v1.back()==v1.front()))
-      v1.push_back(v1.front());
+    if (!(v1.back()==v1.front())){
+      vector<int> v10(v1.front());v1.push_back(v10);
+    }
     int n=v1.size()-1;
     for (int i=0;i<n;++i){
       int x1=v1[i][0],y1=v1[i][1],x2=v1[i+1][0],y2=v1[i+1][1];
@@ -10616,7 +10664,7 @@ void sync_screen(){}
       S=g._VECTptr->at(1);
       V=g._VECTptr->at(2);
     }
-    vecteur hsv=*evalf_double(makevecteur(H,S,V),1,contextptr)._VECTptr;
+    vecteur hsv=gen2vecteur(evalf_double(makevecteur(H,S,V),1,contextptr));
     if (hsv[0].type!=_DOUBLE_ || hsv[1].type!=_DOUBLE_ || hsv[2].type!=_DOUBLE_)
       return gentypeerr(contextptr);
     if (!is_greater(_min(hsv,contextptr),0,contextptr) || !is_greater(1,_max(hsv,contextptr),contextptr))
@@ -10818,7 +10866,7 @@ void sync_screen(){}
   static define_unary_function_eval (__leafsize,&_leafsize,_leafsize_s);
   define_unary_function_ptr5( at_leafsize ,alias_at_leafsize,&__leafsize,0,true);
   
-#if defined HAVE_UNISTD_H && !defined NUMWORKS && !defined HP39
+#if defined HAVE_UNISTD_H && !defined NUMWORKS && !defined HP39 && !defined HPG1
   void locate_files(const char * dirname,const char * ext_,vector<string> & v,bool recurse,GIAC_CONTEXT){
     DIR *dp;
     struct dirent *ep;

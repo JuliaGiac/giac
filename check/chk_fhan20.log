@@ -21,7 +21,7 @@ Added 0 synonyms
 // Time 0
 // Time 0
 // Time 0
-// Time 0
+// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -37,9 +37,11 @@ Warning: non-square matrix!
 // Time 0
 // Time 0
 // Time 0
+Exponent overflow Error: Bad Argument Value
+Exponent overflow Error: Bad Argument Value
 Hyperbola of center (1201/284,-523/568)
-// Time 0.05
-// Time 0.09
+// Time 0.02
+// Time 0.1
 // Time 0
 // Time 0
 // Time 0
@@ -64,5 +66,5 @@ Line A-2*B-3=0
 Line A-2*B+2=0
 Line A-B+1=0
 // Time 0.01
-// Total time 0.24
+// Total time 0.23
 PASS chk_fhan20 (exit status: 0)

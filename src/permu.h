@@ -129,6 +129,8 @@ namespace giac {
   vecteur mean(const matrice & m,bool column=true);
   vecteur stddev(const matrice & m,bool column=true,int variance=1);
   matrice ascsort(const matrice & m,bool column=true);
+  // nonreal is set (and an empty matrix returned) when an element's evalf is no real float
+  matrice ascsort(const matrice & m,bool column,bool & nonreal);
 
   vecteur hermite(int n);
   gen _divergence(const gen &,GIAC_CONTEXT);  

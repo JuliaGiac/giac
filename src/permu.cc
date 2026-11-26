@@ -1553,6 +1553,24 @@ namespace giac {
       const_iterateur jt=v.begin(),jtend=v.end();
       int s=int(jtend-jt);
       gen somme(0);
+      if (has_num_coeff(g)){
+	// a column with a float: two passes about its first value x0, sum((x-x0-m)^2) with m the mean of x-x0. The one-pass
+	// sum(x^2)-s*mean^2 cancels in floats: variance([1.1,1.1,1.1]) was -7.1e-15, stddevp([0.7,0.7,0.7]) 1.03e-07; equal values
+	// now give an exact 0 (x-x0 is 0), and the sum is a sum of squares. An exact column keeps the formula below.
+	gen x0(v.front()),m(0);
+	for (;jt!=jtend;++jt)
+	  m = m + (*jt-x0);
+	m = rdiv(m,s,context0);
+	for (jt=v.begin();jt!=jtend;++jt){
+	  gen d(*jt-x0-m);
+	  somme = somme + d*d;
+	}
+	if (variance!=3)
+	  res.push_back(sqrt(rdiv(somme,s-(variance==2),context0),context0));
+	else
+	  res.push_back(rdiv(somme,s,context0));
+	continue;
+      }
       for (;jt!=jtend;++jt){
 	// somme = somme + evalf((*jt)*(*jt));
 	somme = somme + (*jt)*(*jt);
@@ -1565,7 +1583,62 @@ namespace giac {
     return res;
   }
 
+  // ascsort's sort of a row that holds a real float that is no double (an MPFR value above 14 digits, a _FLOAT_): each
+  // element is kept and sorted by its value (MPFR compared exactly, mpfr_cmp and mpfr_cmp_d). Every element is a real float
+  // here: ascsort stops at one that is not (below).
+  struct ascsort_elem {
+    gen key; // a _DOUBLE_ or a _REAL that is no NaN
+    gen val; // the element as written back
+  };
+  static bool ascsort_less(const ascsort_elem & A,const ascsort_elem & B){
+    const gen & a=A.key, & b=B.key;
+#ifdef HAVE_LIBMPFR
+    if (a.type==_REAL && b.type==_REAL)
+      return mpfr_cmp(a._REALptr->inf,b._REALptr->inf)<0;
+    if (a.type==_REAL)
+      return mpfr_cmp_d(a._REALptr->inf,b._DOUBLE_val)<0;
+    if (b.type==_REAL)
+      return mpfr_cmp_d(b._REALptr->inf,a._DOUBLE_val)>0;
+#endif
+    return a._DOUBLE_val<b._DOUBLE_val;
+  }
+  static void ascsort_floats(vecteur & v,const vector<gen> & vf){
+    int n=int(vf.size());
+    vector<ascsort_elem> w(n);
+    for (int j=0;j<n;++j){
+      const gen & t=vf[j]; // a real float: ascsort_real held for it
+      w[j].val=t;
+      w[j].key=t.type==_FLOAT_?evalf_double(t,1,context0):t;
+    }
+    std::stable_sort(w.begin(),w.end(),ascsort_less);
+    for (int j=0;j<n;++j)
+      v[j]=w[j].val;
+  }
+
+  // an element whose evalf is no real float (a complex, a NaN, undef, a name in a matrix) has no place in the
+  // order; stock wrote it as 0. ascsort stops and sets nonreal, and its callers in misc.cc (median, quartile1,
+  // quartile3, quantile, quartiles) return an error.
+  static bool ascsort_real(const gen & t){
+    if (t.type==_DOUBLE_)
+      return t._DOUBLE_val==t._DOUBLE_val;
+#ifdef HAVE_LIBMPFR
+    if (t.type==_REAL)
+      return !mpfr_nan_p(t._REALptr->inf);
+#endif
+    if (t.type==_FLOAT_){
+      gen d=evalf_double(t,1,context0);
+      return d.type==_DOUBLE_ && d._DOUBLE_val==d._DOUBLE_val;
+    }
+    return false;
+  }
+
   matrice ascsort(const matrice & m,bool column){
+    bool nonreal;
+    return ascsort(m,column,nonreal);
+  }
+
+  matrice ascsort(const matrice & m,bool column,bool & nonreal){
+    nonreal=false;
     matrice mt;
     if (column)
       mt=mtran(m);
@@ -1583,16 +1656,32 @@ namespace giac {
       const_iterateur jt=v.begin(),jtend=v.end();
       int n=int(jtend-jt);
       vector<double> vv(n);
+      vector<gen> vf(n);
+      bool hasfloat=false;
       for (int j=0;jt!=jtend;++jt,++j){
 	if ( (jt->type==_VECT) && (jt->_VECTptr->size()==3) )
 	  tmp=(*jt->_VECTptr)[1];
 	else
 	  tmp=*jt;
 	tmp=evalf(tmp,1,0);
+	if (!ascsort_real(tmp)){
+	  nonreal=true;
+	  return matrice();
+	}
+	vf[j]=tmp;
+	if (tmp.type==_REAL || tmp.type==_FLOAT_)
+	  hasfloat=true;
 	if (tmp.type!=_DOUBLE_)
 	  vv[j]=0;
 	else
 	  vv[j]=tmp._DOUBLE_val;
+      }
+      if (hasfloat){
+	// an MPFR element was 0 here (vv[j]=0 above), so a float list above 14 digits sorted as zeros
+	// (quartile1(evalf([1,2,3,4,5,6])) = 0.0 at Digits 20); sort the elements by value instead
+	ascsort_floats(v,vf);
+	*it=v;
+	continue;
       }
       sort(vv.begin(),vv.end());
       for (int j=0;j<n;++j)

@@ -4752,7 +4752,9 @@ gen fourier(const gen &f_orig,const identificateur &x,const identificateur &s,
                     if (verbose) *logptr(contextptr) << "   Trying symbolic integration\n";
                     log_output_redirect lor(contextptr);
                     fr=_integrate(makesequence(exp(-cst_i*x*(s-sh),contextptr)*pow(x,d.val)*f,x,minus_inf,plus_inf),contextptr);
+#ifndef GIAC_SILENT
                     intwarn=lor.get_buffer_string();
+#endif
                 }
                 if (!try_int || is_undef(fr) || is_inf(fr) || has_integral(fr)) {
                     if (use_lintx) {
@@ -5090,13 +5092,28 @@ bool laplace_periodic(const gen &g_orig,const gen &x,const gen &s,gen &t,GIAC_CO
     return true;
 }
 
+// sto keys the variable table's entry by the name's own characters (usual.cc sto,
+// (*symtabptr)[name]=aa), which the local name n owns. The assumption stored on n here was never purged, so after
+// ilaplace2 returned the table kept an entry under a freed name: VARS() after ilaplace(1/(x^2+1)) listed an entry of
+// garbage bytes, and every later lookup compared names with freed memory. Now n is assumed an integer only around the
+// sum that reads it, and purged when that scope ends (an error or an interrupt too).
+struct ilaplace2_integer_name {
+    gen n;
+    const context * ctx;
+    ilaplace2_integer_name(const gen &n_,const context * ctx_):n(n_),ctx(ctx_) {
+        sto(gen(makevecteur(change_subtype(2,1)),_ASSUME__VECT),n,ctx);
+    }
+    ~ilaplace2_integer_name() {
+        try { purgenoassume(n,ctx); } catch (...) {}
+    }
+};
+
 bool ilaplace2(const gen &g,const gen &s,const gen &x,gen &orig,GIAC_CONTEXT) {
     if (s.type!=_IDNT || x.type!=_IDNT)
         return false;
     vecteur f,a;
     gen F,h,n=identificateur(" n"),k=identificateur(" k");
     //_purge(makesequence(n,k),contextptr);
-    sto(gen(makevecteur(change_subtype(2,1)),_ASSUME__VECT),n,contextptr);
     orig=0;
     expand_lt(g,s,f,a,contextptr);
     if (a.empty())
@@ -5115,7 +5132,10 @@ bool ilaplace2(const gen &g,const gen &s,const gen &x,gen &orig,GIAC_CONTEXT) {
         orig+=_periodic(makesequence(h,*x._IDNTptr,0,T),contextptr);
         h=ratnormal(eval_for_x_in_ab(F,*x._IDNTptr,T,plus_inf,contextptr),contextptr);
         if (!is_zero(h)) {
-            h=_sum(makesequence(subst(h,x,x-T*(k-1),false,contextptr),k,1,n),contextptr);
+            {
+                ilaplace2_integer_name n_integer(n,contextptr);
+                h=_sum(makesequence(subst(h,x,x-T*(k-1),false,contextptr),k,1,n),contextptr);
+            }
             orig+=subst(h,n,_floor(x/T,contextptr),false,contextptr)*_Heaviside(x-T,contextptr);
         }
     }

@@ -2,7 +2,7 @@ TEX_LOCAL = castor.tex casrouge.tex cascmd_fr.tex casgeo.tex casexo.tex \
 	    cascas.tex cassim.tex permutation.tex tutoriel.tex \
 	    casinter.tex algo.tex fltkcol.tex
 
-PDF_LOCAL = tutoriel.pdf algo.pdf troussesurvie_fr.pdf # casrouge.pdf castor.pdf cascmd_fr.pdf casgeo.pdf tutoriel.pdf casinter.pdf cascas.pdf casexo.pdf cassim.pdf 
+PDF_LOCAL = stage*pdf tutoriel.pdf algo.pdf troussesurvie_fr.pdf # casrouge.pdf castor.pdf cascmd_fr.pdf casgeo.pdf tutoriel.pdf casinter.pdf cascas.pdf casexo.pdf cassim.pdf 
 
 PS_LOCAL = casrouge.ps castor.ps cascmd_fr.ps casgeo.ps cassim.ps \
 	   casinter.ps casexo.ps cascas.ps

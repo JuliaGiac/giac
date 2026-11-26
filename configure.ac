@@ -2,7 +2,7 @@ dnl Run autoreconf -iv to produce the configure script and associated files.
 
 dnl Giac version number
 m4_define([giac_major_version], [2])
-m4_define([giac_minor_version], [0])
+m4_define([giac_minor_version], [1])
 m4_define([giac_micro_version], [0])
 m4_define([giac_version], [giac_major_version.giac_minor_version.giac_micro_version])
 
@@ -399,7 +399,7 @@ AC_ARG_ENABLE([fltk],
 save_LIBS="$LIBS"
 if test "$CONFIG_FLTK" = "yes"; then 
 
-dnl Check for X11 anf fltk or cygwin and fltk...
+  dnl Check for X11 anf fltk or cygwin and fltk...
 	case $host_os in
 		*cygwin*)
 		AC_CHECK_LIB(GL, main)
@@ -460,6 +460,7 @@ dnl		AC_CHECK_LIB(GLU, main)
         # Mise à jour des flags pour le reste du configure
         FLTK_DIR="`pwd`/fltk-1.3.8"
         FLTK_LIB_DIR="$FLTK_DIR/lib"
+        CXXFLAGS="-I$FLTK_DIR $CXXFLAGS"
     
         # 1. On commence par la bibliothèque de base (obligatoire)
         AS_IF([test -f "$FLTK_LIB_DIR/libfltk.a"], [
@@ -501,31 +502,31 @@ dnl		AC_CHECK_LIB(GLU, main)
         ], [
         AC_MSG_RESULT([Using system FLTK headers.])
         dnl X11, check for opengl, fltk
-	AC_CHECK_LIB(X11,main)
-	AC_CHECK_LIB(Xcursor,main)
-	AC_CHECK_LIB(Xfixes,main)
-	AC_CHECK_LIB(Xinerama, main)
-	AC_CHECK_LIB(fontconfig, main)
-	AC_CHECK_LIB(Xft, main,[HAVE_LIBXFT=1]) dnl  ,[], [AC_MSG_ERROR(exiting, as libXft cannot be found. Hint: you can run ./configure --disable-fltk to compile without GUI)])
+	      AC_CHECK_LIB(X11,main)
+	      AC_CHECK_LIB(Xcursor,main)
+	      AC_CHECK_LIB(Xfixes,main)
+	      AC_CHECK_LIB(Xinerama, main)
+	      AC_CHECK_LIB(fontconfig, main)
+	      AC_CHECK_LIB(Xft, main,[HAVE_LIBXFT=1]) dnl  ,[], [AC_MSG_ERROR(exiting, as libXft cannot be found. Hint: you can run ./configure --disable-fltk to compile without GUI)])
         if test "$HAVE_LIBXFT" = "1" ; then
            AC_CHECK_LIB(Xft, main)
-	   AC_CHECK_LIB(Xext, main)
-	   AC_CHECK_LIB(Xrender, main)
-	   AC_CHECK_LIB(fltk_gl, main)
-	   AC_CHECK_LIB(fltk, main)
-	   if test "$HAVE_LIBFLTK" = "1"; then
-	      AC_DEFINE([HAVE_LIBFLVW],1, [Now defined if fltk is available])
-	      fi
-	      AC_CHECK_LIB(z,main)
-	      AC_CHECK_HEADERS(png.h, AC_CHECK_LIB(png,main))
-	      AC_CHECK_LIB(jpeg, main)
-	      AC_CHECK_LIB(fltk_images, main)
-	      FLTK_LIBS="$LIBS $X_LIBS"
-	      AC_SUBST(FLTK_LIBS)
-              cd src && ln -sf ../fltk-1.3.8 && cd ..
-           fi
+	         AC_CHECK_LIB(Xext, main)
+	         AC_CHECK_LIB(Xrender, main)
+	         AC_CHECK_LIB(fltk_gl, main)
+	         AC_CHECK_LIB(fltk, main)
+	         if test "$HAVE_LIBFLTK" = "1"; then
+	            AC_DEFINE([HAVE_LIBFLVW],1, [Now defined if fltk is available])
+	         fi
+	         AC_CHECK_LIB(z,main)
+	         AC_CHECK_HEADERS(png.h, AC_CHECK_LIB(png,main))
+	         AC_CHECK_LIB(jpeg, main)
+	         AC_CHECK_LIB(fltk_images, main)
+	         FLTK_LIBS="$LIBS $X_LIBS"
+	         AC_SUBST(FLTK_LIBS)
+           cd src && ln -sf ../fltk-1.3.8 && cd ..
         fi
-            ])
+        ])
+  fi
 LIBS="$save_LIBS"
 
 AC_CHECK_HEADERS(dfu_lib.h) 
