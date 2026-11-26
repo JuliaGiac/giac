@@ -40,3 +40,6 @@ test_integrate_repeat = executable('test_integrate_repeat',
 )
 
 test('integrate_repeat', test_integrate_repeat, suite: 'unit', timeout: 60)
+
+# The tolerant comparison used by the checks in approx_checks (src/meson.build)
+test('numdiff', check_python, args: [numdiff, '--self-test'], suite: 'unit', timeout: 30)

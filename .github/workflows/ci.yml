@@ -87,17 +87,17 @@ jobs:
       # ── Unit tests ─────────────────────────────────────────────────────
       - name: Unit tests (Linux/macOS)
         if: runner.os != 'Windows'
-        run: meson test -C builddir --suite unit
+        run: meson test -C builddir --suite unit --print-errorlogs
 
       - name: Unit tests (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: meson test -C builddir --suite unit
+        run: meson test -C builddir --suite unit --print-errorlogs
 
       # ── Integration tests ──────────────────────────────────────────────
       - name: Integration tests (Linux/macOS)
         if: runner.os != 'Windows'
-        run: meson test -C builddir --suite check
+        run: meson test -C builddir --suite check --print-errorlogs
 
       # Integration tests on Windows are skipped: the shell-based test
       # runner requires Unix tools (tail, grep, diff) that are not in

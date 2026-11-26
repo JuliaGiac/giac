@@ -415,7 +415,7 @@ giac_headers = files(
   'src/dispatch.h', 'src/fraction.h', 'src/gen.h', 'src/desolve.h',
   'src/misc.h', 'src/ti89.h', 'src/mathml.h', 'src/identificateur.h',
   'src/unary.h', 'src/symbolic.h', 'src/index.h', 'src/modpoly.h',
-  'src/modfactor.h', 'src/modint.h', 'src/permu.h', 'src/monomial.h',
+  'src/modfactor.h', 'src/modint.h', 'src/permu.h', 'src/proba.h', 'src/monomial.h',
   'src/poly.h', 'src/threaded.h', 'src/gausspol.h', 'src/sym2poly.h',
   'src/ezgcd.h', 'src/derive.h', 'src/solve.h', 'src/quater.h',
   'src/subst.h', 'src/usual.h', 'src/intg.h', 'src/intgab.h',
