@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Builds against PARI 2.19: `src/optimization.cc` writes `std::bitset`, since
+  PARI 2.19's `paridecl.h` declares a C function `bitset(GEN, long)` that made
+  the unqualified `bitset<32>` ambiguous under `using namespace std`.
 - The 2.1.0 sync left out upstream's new `src/proba.cc` (covariance and PCA,
   multiple linear regression, Brownian motion and other stochastic
   processes, SDE schemes, Black-Scholes prices and Greeks, Monte Carlo): the
