@@ -35,7 +35,7 @@ giac_core_sources = files(
   'isom.cc', 'plot.cc', 'plot3d.cc', 'rpn.cc',
   'prog.cc', 'pari.cc', 'cocoa.cc', 'unary.cc',
   'usual.cc', 'identificateur.cc', 'gen.cc', 'tinymt32.cc',
-  'first.cc', 'help.cc',
+  'first.cc', 'proba.cc', 'help.cc',
   'lpsolve.cc', 'optimization.cc', 'signalprocessing.cc',
   'graphe.cc', 'graphtheory.cc', 'nautywrapper.c',
   'markup.cc', 'kdisplay.cc', 'kadd.cc',
@@ -233,6 +233,8 @@ check_tests = {
   'geo': 'testgeo',
   # Integration
   'integrate': 'testintegrate',
+  # Statistics, regression, stochastic processes and option pricing (proba.cc)
+  'proba': 'testproba',
 }
 
 icas_exe = meson.current_build_dir() / 'icas'
