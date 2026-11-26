@@ -268,7 +268,31 @@ namespace giac {
   static define_unary_function_eval (__Airy_Bi,&_Airy_Bi,_Airy_Bi_s);
   define_unary_function_ptr5( at_Airy_Bi ,alias_at_Airy_Bi,&__Airy_Bi,0,true);
 
+  // a list as the last argument of a cdf, an icdf or a UTP* is one value per element, as for the
+  // densities (apply2nd): each element goes through the scalar call, so its form and its branch are the
+  // scalar's. Giac's formulas took the list inside erf, UTPC, ugamma or Beta, and that outer call does not map:
+  // normald_cdf(0,1,list[1/2,3/2]) was (erf(list[...])+1)/2. Only a sequence of at least two arguments: one list alone is Giac's
+  // argument list (normald_cdf([0.5,1.5]) is normald_cdf(0.5,1.5)).
+  static bool pas_list_x(const gen & g){
+    return g.type==_VECT && g.subtype==_SEQ__VECT && g._VECTptr->size()>=2 && g._VECTptr->back().type==_VECT;
+  }
+  static gen pas_map_x(const gen & g,gen (*f)(const gen &,GIAC_CONTEXT),GIAC_CONTEXT){
+    vecteur args(*g._VECTptr),res;
+    gen L=args.back();
+    res.reserve(L._VECTptr->size());
+    vecteur::const_iterator it=L._VECTptr->begin(),itend=L._VECTptr->end();
+    for (;it!=itend;++it){
+      args.back()=*it;
+      gen r=f(gen(args,_SEQ__VECT),contextptr);
+      if (is_undef(r))
+	return r;
+      res.push_back(r);
+    }
+    return gen(res,L.subtype);
+  }
+
   gen _UTPN(const gen & args,GIAC_CONTEXT){
+    if (pas_list_x(args)) return pas_map_x(args,_UTPN,contextptr);
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (args.type!=_VECT)
       return erfc(args/plus_sqrt2,contextptr)/2;
@@ -499,6 +523,7 @@ namespace giac {
     return rdiv(erf(ratnormal(plus_sqrt2_2*g,contextptr),contextptr)+plus_one,2,contextptr);
   }
   gen _normal_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_normal_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return normal_cdf(g,contextptr);
@@ -560,6 +585,7 @@ namespace giac {
     // plus_sqrt2*newton(erf(x)+1-2*g,x,0);
   }
   gen _normal_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_normal_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return normal_icdf(g,contextptr);
@@ -607,6 +633,17 @@ namespace giac {
     return gen(v,e3.subtype);
   }
 
+  // a discrete distribution lives on the integers. pas_off_integers(k): k is a number (a
+  // double, an MPFR float, a fraction) that is no integer, so a probability there is 0 and a cdf there is the cdf at
+  // floor(k); a symbol or an exact non-rational keeps the formula. MPFR floats (_REAL) are numbers too: binomial took
+  // only doubles and fractions for its argument order, so binomial(5,0.5,1.5) at Digits 40 was a number, and
+  // binomial(5,0.5,3/2) swapped its arguments without end (a stack overflow).
+  static bool pas_off_integers(const gen & k,GIAC_CONTEXT){
+    if (k.type!=_DOUBLE_ && k.type!=_REAL && k.type!=_FLOAT_ && k.type!=_FRAC)
+      return false;
+    return !is_zero(k-_floor(k,contextptr));
+  }
+
   gen binomial(const gen & N,const gen & K,const gen & P,GIAC_CONTEXT){
     gen n(N),k(K),p(P);
     is_integral(n); is_integral(k); is_integral(p);
@@ -621,8 +658,8 @@ namespace giac {
 	return gensizeerr(contextptr);
       return binomial(n,p,k,contextptr);	
     }
-    if (k.type==_DOUBLE_ || k.type==_FLOAT_ || k.type==_FRAC){
-      if (p.type==_DOUBLE_ || p.type==_FLOAT_ || p.type==_FRAC)
+    if (k.type==_DOUBLE_ || k.type==_FLOAT_ || k.type==_FRAC || pas_off_integers(k,contextptr)){
+      if (p.type==_DOUBLE_ || p.type==_FLOAT_ || p.type==_FRAC || p.type==_REAL)
 	return gensizeerr(contextptr);
       return binomial(n,p,k,contextptr);
     }
@@ -743,6 +780,29 @@ namespace giac {
   static define_unary_function_eval (__randmultinomial,&_randmultinomial,_randmultinomial_s);
   define_unary_function_ptr5( at_randmultinomial ,alias_at_randmultinomial,&__randmultinomial,0,true);
 
+  // a density or a cdf outside its support. pas_below(x,lo): x is provably below lo (the
+  // density there is 0); an argument of unknown sign is not, so its formula stays. pas_last_list, pas_map_last: a list as
+  // the last argument (x) gives one value per element, as chisquare's apply2nd does (Giac's power of a list is its dot
+  // product, so the formulas gave one wrong number).
+  static bool pas_below(const gen & x,const gen & lo,GIAC_CONTEXT){
+    if (x.type==_VECT || lo.type==_VECT || x.type==_STRNG || lo.type==_STRNG)
+      return false;
+    return is_strictly_greater(lo,x,contextptr);
+  }
+  static bool pas_last_list(const vecteur & v){
+    return !v.empty() && v.back().type==_VECT && v.back().subtype!=_SEQ__VECT;
+  }
+  static gen pas_map_last(const vecteur & v,gen (*f)(const gen &,GIAC_CONTEXT),GIAC_CONTEXT){
+    const vecteur xs=*v.back()._VECTptr;
+    vecteur args(v),res;
+    res.reserve(xs.size());
+    for (size_t i=0;i<xs.size();++i){
+      args.back()=xs[i];
+      res.push_back(f(gen(args,_SEQ__VECT),contextptr));
+    }
+    return gen(res,v.back().subtype);
+  }
+
   gen _negbinomial(const gen & g,GIAC_CONTEXT){
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
@@ -750,6 +810,8 @@ namespace giac {
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
     if (s==2) return symbolic(at_negbinomial,g); // for random
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_negbinomial,contextptr);
     if (s==3){
       gen r=v[0],p=v[1],k=v[2];
       gen tmp=evalf_double(k,1,contextptr);
@@ -757,6 +819,8 @@ namespace giac {
 	swapgen(k,p);
       if (is_integral(p))
 	swapgen(k,p);
+      if (pas_below(k,0,contextptr) || pas_off_integers(k,contextptr))
+	return 0;
       if (is_zero(k))
 	return pow(p,r,contextptr);
       return binomial(r+k-1,r,p,contextptr)*(1-p)*r/k;
@@ -768,18 +832,34 @@ namespace giac {
   define_unary_function_ptr5( at_negbinomial ,alias_at_negbinomial,&__negbinomial,0,true);
 
   gen _negbinomial_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_negbinomial_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_negbinomial_cdf,contextptr);
     if (s==3){
       gen n=v[0],p=v[1],k=v[2];
+      if (pas_below(k,0,contextptr))
+	return 0;
+      if (pas_off_integers(k,contextptr))
+	k=_floor(k,contextptr);
       return _Beta(makesequence(n,k+1,p,1),contextptr);
     }
     if (s==4){
       gen n=v[0],p=v[1],k1=v[2],k2=v[3];
-      return _Beta(makesequence(n,k2+1,p,1),contextptr)-_Beta(makesequence(n,k1+1,p,1),contextptr);
+      // P(k1<=K<=k2) (aide_cas), as binomial_cdf and poisson_cdf: cdf(k2)-cdf(k1-1); cdf(k2)-cdf(k1) left k1 out
+      if (pas_off_integers(k2,contextptr))
+	k2=_floor(k2,contextptr);
+      if (pas_off_integers(k1,contextptr))
+	k1=_ceil(k1,contextptr);
+      if (pas_below(k2,0,contextptr))
+	return 0;
+      if (pas_below(k1,1,contextptr))
+	return _Beta(makesequence(n,k2+1,p,1),contextptr);
+      return _Beta(makesequence(n,k2+1,p,1),contextptr)-_Beta(makesequence(n,k1,p,1),contextptr);
     }
     return gensizeerr(contextptr);
   }
@@ -787,22 +867,68 @@ namespace giac {
   static define_unary_function_eval (__negbinomial_cdf,&_negbinomial_cdf,_negbinomial_cdf_s);
   define_unary_function_ptr5( at_negbinomial_cdf ,alias_at_negbinomial_cdf,&__negbinomial_cdf,0,true);
 
+  // an exact rational (an integer, a big integer or a fraction of them)
+  static bool pas_exact_rational(const gen & x){
+    if (x.type==_INT_ || x.type==_ZINT)
+      return true;
+    return x.type==_FRAC && (x._FRACptr->num.type==_INT_ || x._FRACptr->num.type==_ZINT) && (x._FRACptr->den.type==_INT_ || x._FRACptr->den.type==_ZINT);
+  }
+  static const int PAS_NEGBINOMIAL_ICDF_STEPS=100000;
+
   gen _negbinomial_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_negbinomial_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
     if (s==3){
-      gen R=v[0],P=evalf_double(v[1],1,contextptr),T=v[2];
-      if (!is_integral(R) || R.val<=0 || P._DOUBLE_val<=0 || P._DOUBLE_val>=1)
+      // with r, p and t exact rationals the cdf is added in exact fractions, so a t equal
+      // to a cdf value that is no binary fraction is a tie (negbinomial_icdf(3,1/3,1/27) was 1, right 0: the long double
+      // sum of the pmf lands on either side of t). The least k with cdf(k) >= t; t = 1 is +infinity (cdf(k) < 1 for every
+      // k), t outside [0,1] is refused (t >= 1 returned 1). The loop ends because t < 1 and the cdf tends to 1; the step
+      // cap refuses rather than loops, and control_c lets a caller's step budget and clock stop it.
+      gen R0=v[0];
+      if (pas_exact_rational(R0) && pas_exact_rational(v[1]) && pas_exact_rational(v[2])){
+	gen P=v[1],T=v[2];
+	if (R0.type!=_INT_ || R0.val<=0 || !is_strictly_greater(P,0,contextptr) || !is_strictly_greater(1,P,contextptr) || is_strictly_greater(0,T,contextptr) || is_strictly_greater(T,1,contextptr))
+	  return gensizeerr(contextptr);
+	if (is_zero(T))
+	  return 0;
+	if (is_one(T))
+	  return plus_inf;
+	int r=R0.val;
+	// P = a/b and T = c/d are fractions strictly between 0 and 1. With U_j = C(j+r-1,j)*(b-a)^j and
+	// S_k = sum_{j<=k} U_j*b^(k-j), cdf(k) = a^r*S_k/b^(r+k), so cdf(k) >= T is d*a^r*S_k >= c*b^(r+k): integers
+	// only (a sum of fractions took a gcd per step, minutes for 10^4 steps). U_{k+1} = U_k*(k+r)/(k+1)*(b-a) is the
+	// recurrence negbinomial(r,p,k+1)/negbinomial(r,p,k) = (1-p)*(k+r)/(k+1); the quotient is exact (a binomial).
+	gen a=P._FRACptr->num,b=P._FRACptr->den,c=T._FRACptr->num,d=T._FRACptr->den,ba=b-a;
+	gen D=d*pow(a,r,contextptr),B=c*pow(b,r,contextptr),U=1,S=1;
+	for (int k=0;k<PAS_NEGBINOMIAL_ICDF_STEPS;++k){
+	  control_c();
+	  if (interrupted)
+	    return gensizeerr(gettext("Stopped by user interruption."));
+	  if (!is_strictly_greater(B,D*S,contextptr))
+	    return k;
+	  U=iquo(U*gen(k+r),gen(k+1))*ba;
+	  S=S*b+U;
+	  B=B*b;
+	}
+	return gensizeerr(gettext("negbinomial_icdf: more than 100000 steps"));
+      }
+      // T as a double too: the double field of an exact 1/5 was read as 0, so negbinomial_icdf(3,1/2,1/5) was 0
+      gen R=v[0],P=evalf_double(v[1],1,contextptr),T=evalf_double(v[2],1,contextptr);
+      if (!is_integral(R) || R.type!=_INT_ || P.type!=_DOUBLE_ || T.type!=_DOUBLE_ || R.val<=0 || P._DOUBLE_val<=0 || P._DOUBLE_val>=1)
 	return gensizeerr(contextptr);
       int r=R.val;
       long_double p=P._DOUBLE_val,t=T._DOUBLE_val;
-      if (t<=0)
+      // a t outside [0,1] is refused and t = 1 is +infinity on the double path too (t >= 1 returned 1)
+      if (t<0 || t>1)
+	return gensizeerr(contextptr);
+      if (t==0)
 	return 0;
-      if (t>=1)
-	return 1;
+      if (t==1)
+	return plus_inf;
       long_double cumul=std::pow(p,r),current=cumul;
       if (cumul==0){
 	*logptr(contextptr) << gettext("Underflow") <<"\n";
@@ -900,6 +1026,7 @@ namespace giac {
     return res;
   }
   gen _binomial_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_binomial_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -997,6 +1124,7 @@ namespace giac {
     return n;
   }
   gen _binomial_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_binomial_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1059,6 +1187,8 @@ namespace giac {
   gen poisson(const gen & m,const gen & k,GIAC_CONTEXT){
     if (k.type==_VECT)
       return apply2nd(m,k,contextptr,poisson);
+    if (pas_below(k,0,contextptr) || pas_off_integers(k,contextptr))
+      return 0;
     gen M=evalf_double(m,1,contextptr);
     if (M.type==_DOUBLE_){
       gen K=evalf_double(k,1,contextptr);
@@ -1121,6 +1251,8 @@ namespace giac {
 #endif
   }
   gen poisson_cdf(const gen & lambda_,const gen & x,GIAC_CONTEXT){
+    if (pas_below(x,0,contextptr))
+      return 0;
     gen fx=_floor(x,contextptr);
     gen lambda=evalf_double(lambda_,1,contextptr);
     if (fx.type==_INT_ && fx.val>=0 && lambda.type==_DOUBLE_)
@@ -1140,6 +1272,7 @@ namespace giac {
     //return sum(poisson(n,k,contextptr),k,0,_floor(x,contextptr),contextptr);
   }
   gen _poisson_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_poisson_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1147,8 +1280,12 @@ namespace giac {
     int s=int(v.size());
     if (s==2)
       return poisson_cdf(v[0],v[1],contextptr);
-    if (s==3)
-      return poisson_cdf(v[0],v[2],contextptr)-poisson_cdf(v[0],v[1]-1,contextptr);
+    if (s==3){
+      gen k1=v[1];
+      if (pas_off_integers(k1,contextptr))
+	k1=_ceil(k1,contextptr);
+      return poisson_cdf(v[0],v[2],contextptr)-poisson_cdf(v[0],k1-1,contextptr);
+    }
     return gensizeerr(contextptr);
   }
   static const char _poisson_cdf_s []="poisson_cdf";
@@ -1260,6 +1397,7 @@ namespace giac {
   }
 
   gen _poisson_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_poisson_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1418,6 +1556,7 @@ namespace giac {
     }
   }
   gen _UTPT(const gen & args,GIAC_CONTEXT){
+    if (pas_list_x(args)) return pas_map_x(args,_UTPT,contextptr);
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (args.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1454,6 +1593,7 @@ namespace giac {
     return UTPT(dof,X1,contextptr)-UTPT(dof,X2,contextptr);
   }
   gen _student_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_student_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1495,6 +1635,7 @@ namespace giac {
     return x0;
   }
   gen _student_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_student_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1530,6 +1671,8 @@ namespace giac {
   gen chisquare(const gen & n,const gen & x,GIAC_CONTEXT){
     if (x.type==_VECT)
       return apply2nd(n,x,contextptr,chisquare);
+    if (pas_below(x,0,contextptr))
+      return 0;
     gen n2=n/2;
     return rdiv(pow(x,n2-1,contextptr)*exp(-x/2,contextptr),Gamma(n2,contextptr)*pow(2,n2,contextptr),contextptr);
   }
@@ -1614,6 +1757,7 @@ namespace giac {
       return res;
   }
   gen _UTPC(const gen & args,GIAC_CONTEXT){
+    if (pas_list_x(args)) return pas_map_x(args,_UTPC,contextptr);
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (args.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1631,6 +1775,7 @@ namespace giac {
     return UTPC(dof,x1,contextptr)-UTPC(dof,x2,contextptr);
   }
   gen _chisquare_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_chisquare_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1681,6 +1826,7 @@ namespace giac {
     return newton(1-UTPC(m,x,contextptr)-t,x,x0,NEWTON_DEFAULT_ITERATION,1e-5,1e-12,true,1,0,1,0,.5,contextptr);   
   }
   gen _chisquare_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_chisquare_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1809,6 +1955,7 @@ namespace giac {
     }
   }
   gen _UTPF(const gen & args,GIAC_CONTEXT){
+    if (pas_list_x(args)) return pas_map_x(args,_UTPF,contextptr);
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (args.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1838,6 +1985,7 @@ namespace giac {
     return 1-UTPF(ndof,ddof,x,contextptr);
   }
   gen _snedecor_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_snedecor_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1894,6 +2042,7 @@ namespace giac {
     return newton(1-UTPF(num,den,x,contextptr)-t,x,x0,NEWTON_DEFAULT_ITERATION,1e-5,1e-12,true,0,1.79769313486e+308,1,0,.5,contextptr);   
   }
   gen _snedecor_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_snedecor_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -1957,6 +2106,7 @@ namespace giac {
     return plus_one_half+atan((x-x0)/a,contextptr)/cst_pi;
   }
   gen _cauchy_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_cauchy_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return cauchy_cdf(0,1,g,contextptr);
@@ -1980,6 +2130,7 @@ namespace giac {
     return tan(cst_pi*(x-plus_one_half),contextptr)*a+x0;
   }
   gen _cauchy_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_cauchy_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return cauchy_icdf(0,1,g,contextptr);
@@ -2000,6 +2151,8 @@ namespace giac {
   define_unary_function_ptr5( at_cauchyd_icdf ,alias_at_cauchyd_icdf,&__cauchyd_icdf,0,true);
 
   gen weibull(const gen & k,const gen & lambda,const gen & theta,const gen & x,GIAC_CONTEXT){
+    if (pas_below(x,theta,contextptr))
+      return 0;
     gen tmp=(x-theta)/lambda;
     return k/lambda*pow(tmp,k-1,contextptr)*exp(-pow(tmp,k,contextptr),contextptr);
   }
@@ -2011,6 +2164,8 @@ namespace giac {
     int s=int(v.size());
     if (s==2)
       return symbolic(at_weibulld,g);
+    if ((s==3 || s==4) && pas_last_list(v))
+      return pas_map_last(v,_weibull,contextptr);
     if (s==3)
       return weibull(v[0],v[1],0,v[2],contextptr);
     if (s==4)
@@ -2026,15 +2181,20 @@ namespace giac {
   define_unary_function_ptr5( at_weibulld ,alias_at_weibulld,&__weibulld,0,true);
 
   gen weibull_cdf(const gen & k,const gen & lambda,const gen & theta,const gen & x,GIAC_CONTEXT){
+    if (pas_below(x,theta,contextptr))
+      return 0;
     gen tmp=(x-theta)/lambda;
     return 1-exp(-pow(tmp,k,contextptr),contextptr);
   }
   gen _weibull_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_weibull_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
+    if ((s==3 || s==4) && pas_last_list(v))
+      return pas_map_last(v,_weibull_cdf,contextptr);
     if (s==3)
       return weibull_cdf(v[0],v[1],0,v[2],contextptr);
     if (s==4)
@@ -2057,6 +2217,7 @@ namespace giac {
     return lambda*pow(-ln(1-y,contextptr),plus_one/k,contextptr)+theta;
   }
   gen _weibull_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_weibull_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -2099,6 +2260,8 @@ namespace giac {
   define_unary_function_ptr5( at_weibullvariate ,alias_at_weibullvariate,&__weibullvariate,0,true);
 
   gen betad(const gen &alpha,const gen & beta,const gen & x,GIAC_CONTEXT){
+    if (pas_below(x,0,contextptr) || pas_below(1,x,contextptr))
+      return 0;
     if ( (x==0 && alpha==1) || (x==1 && beta==1))
       return plus_one/Beta(alpha,beta,contextptr);
     return pow(x,alpha-1,contextptr)*pow(1-x,beta-1,contextptr)/Beta(alpha,beta,contextptr);
@@ -2111,6 +2274,8 @@ namespace giac {
     int s=int(v.size());
     if (s==2)
       return symbolic(at_betad,g);
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_betad,contextptr);
     if (s==3)
       return betad(v[0],v[1],v[2],contextptr);
     return gensizeerr(contextptr);
@@ -2121,6 +2286,7 @@ namespace giac {
 
   // beta_cdf=Beta regularized
   gen _betad_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_betad_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -2180,6 +2346,7 @@ namespace giac {
     return newton(symbolic(at_Beta,makesequence(alpha,beta,x,1))-y,x,x0,NEWTON_DEFAULT_ITERATION,1e-5,1e-12,true,1,0,1,0,prefactor,contextptr);
   }
   gen _betad_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_betad_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -2218,6 +2385,8 @@ namespace giac {
   define_unary_function_ptr5( at_betavariate ,alias_at_betavariate,&__betavariate,0,true);
 
   gen gammad(const gen &alpha,const gen & beta,const gen & x,GIAC_CONTEXT){
+    if (pas_below(x,0,contextptr))
+      return 0;
     if (is_zero(x) && alpha==1)
       return beta;
     if (x==plus_inf)
@@ -2232,6 +2401,8 @@ namespace giac {
     int s=int(v.size());
     if (s==2)
       return symbolic(at_gammad,g);
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_gammad,contextptr);
     if (s==3)
       return gammad(v[0],v[1],v[2],contextptr);
     return gensizeerr(contextptr);
@@ -2242,15 +2413,26 @@ namespace giac {
 
   // beta_cdf=Gamma regularized
   gen _gammad_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_gammad_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
-    if (s==3)
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_gammad_cdf,contextptr);
+    if (s==3){
+      if (pas_below(v[2],0,contextptr))
+	return 0;
       return _lower_incomplete_gamma(makesequence(v[0],v[1]*v[2],1),contextptr);
-    if (s==4)
+    }
+    if (s==4){
+      if (pas_below(v[3],0,contextptr))
+	return 0;
+      if (pas_below(v[2],0,contextptr))
+	return _lower_incomplete_gamma(makesequence(v[0],v[1]*v[3],1),contextptr);
       return _lower_incomplete_gamma(makesequence(v[0],v[1]*v[3],1),contextptr)-_lower_incomplete_gamma(makesequence(v[0],v[1]*v[2],1),contextptr);
+    }
     return gensizeerr(contextptr);
   }
   static const char _gammad_cdf_s []="gammad_cdf";
@@ -2292,6 +2474,7 @@ namespace giac {
     return newton(symbolic(at_lower_incomplete_gamma,makesequence(alpha,x))-y*Gamma(alpha,contextptr),x,x0,NEWTON_DEFAULT_ITERATION,1e-5,1e-12,true,1,0,1,0,prefactor,contextptr)/beta; 
   }
   gen _gammad_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_gammad_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -2513,8 +2696,18 @@ namespace giac {
 	return v[0]+(giac_rand(contextptr)/(rand_max2+1.0))*(v[1]-v[0]);
       return symbolic(at_uniformd,makesequence(v[0],v[1]));
     }
-    if (s==3)
+    if (s==3 && pas_last_list(v)){
+      const vecteur xs=*v[2]._VECTptr;
+      vecteur res;
+      for (size_t i=0;i<xs.size();++i)
+	res.push_back(uniform(makesequence(v[0],v[1],xs[i]),ckpython,contextptr));
+      return gen(res,v[2].subtype);
+    }
+    if (s==3){
+      if (pas_below(v[2],v[0],contextptr) || pas_below(v[1],v[2],contextptr))
+	return 0;
       return inv(v[1]-v[0],contextptr);
+    }
     return gensizeerr(contextptr);
   }
   gen _uniform(const gen & g,GIAC_CONTEXT){
@@ -2531,15 +2724,30 @@ namespace giac {
   define_unary_function_ptr5( at_uniformd ,alias_at_uniformd,&__uniformd,0,true);
 
   gen _uniform_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_uniform_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return g;
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
-    if (s==3)
+    if (s==3 && pas_last_list(v))
+      return pas_map_last(v,_uniform_cdf,contextptr);
+    if (s==3){
+      if (pas_below(v[2],v[0],contextptr))
+	return 0;
+      if (pas_below(v[1],v[2],contextptr))
+	return 1;
       return (v[2]-v[0])/(v[1]-v[0]);
-    if (s==4)
-      return (v[3]-v[2])/(v[1]-v[0]);
+    }
+    if (s==4){
+      // each bound clamped to the support [a,b] (the cdf is 0 below it and 1 above it)
+      gen x1=v[2],x2=v[3];
+      if (pas_below(x1,v[0],contextptr)) x1=v[0];
+      if (pas_below(v[1],x1,contextptr)) x1=v[1];
+      if (pas_below(x2,v[0],contextptr)) x2=v[0];
+      if (pas_below(v[1],x2,contextptr)) x2=v[1];
+      return (x2-x1)/(v[1]-v[0]);
+    }
     return gensizeerr(contextptr);
   }
   static const char _uniform_cdf_s []="uniform_cdf";
@@ -2550,6 +2758,7 @@ namespace giac {
   define_unary_function_ptr5( at_uniformd_cdf ,alias_at_uniformd_cdf,&__uniformd_cdf,0,true);
 
   gen _uniform_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_uniform_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return g;
@@ -2574,8 +2783,13 @@ namespace giac {
       return symbolic(at_exponentiald,g);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
-    if (s==2)
+    if (s==2 && pas_last_list(v))
+      return pas_map_last(v,_exponential,contextptr);
+    if (s==2){
+      if (pas_below(v[1],0,contextptr))
+	return 0;
       return v[0]*exp(-v[0]*v[1],contextptr);
+    }
     return gensizeerr(contextptr);
   }
   static const char _exponential_s []="exponential";
@@ -2586,15 +2800,27 @@ namespace giac {
   define_unary_function_ptr5( at_exponentiald ,alias_at_exponentiald,&__exponentiald,0,true);
 
   gen _exponential_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_exponential_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
-    if (s==2)
+    if (s==2 && pas_last_list(v))
+      return pas_map_last(v,_exponential_cdf,contextptr);
+    if (s==2){
+      if (pas_below(v[1],0,contextptr))
+	return 0;
       return 1-exp(-v[0]*v[1],contextptr);
-    if (s==3)
+    }
+    if (s==3){
+      // P(x1<=X<=x2): a bound below the support counts as 0
+      if (pas_below(v[2],0,contextptr))
+	return 0;
+      if (pas_below(v[1],0,contextptr))
+	return 1-exp(-v[0]*v[2],contextptr);
       return exp(-v[0]*v[1],contextptr)-exp(-v[0]*v[2],contextptr);
+    }
     return gensizeerr(contextptr);
   }
   static const char _exponential_cdf_s []="exponential_cdf";
@@ -2606,6 +2832,7 @@ namespace giac {
 
   // 1 - exp(-l*x)=p => exp(-l*x)=1-p => x=-1/l*ln(1-p)
   gen _exponential_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_exponential_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return gensizeerr(contextptr);
@@ -2627,6 +2854,8 @@ namespace giac {
   // geometric(p,k)=(1-p)^(k-1)*p
   gen geometric(const gen & p,const gen & k,GIAC_CONTEXT){
     gen K(k);
+    if (pas_below(k,1,contextptr) || pas_off_integers(k,contextptr))
+      return 0;
     if (is_positive(-k,contextptr))
       return gensizeerr(contextptr);
     return pow(1-p,k-1,contextptr)*p;
@@ -2648,11 +2877,16 @@ namespace giac {
   // geometric_cdf(p,k)=1-(1-p)^k
   gen geometric_cdf(const gen & p,const gen & k,GIAC_CONTEXT){
     gen K(k);
-    if (is_strictly_positive(-k,contextptr))
+    if (pas_below(k,1,contextptr))
+      return 0;
+    if (pas_off_integers(k,contextptr))
+      K=_floor(k,contextptr);
+    if (is_strictly_positive(-K,contextptr))
       return gensizeerr(contextptr);
-    return 1-pow(1-p,k,contextptr);
+    return 1-pow(1-p,K,contextptr);
   }
   gen _geometric_cdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_geometric_cdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return symbolic(at_geometric_cdf,g);
@@ -2660,8 +2894,12 @@ namespace giac {
     int s=int(v.size());
     if (s==2)
       return geometric_cdf(v[0],v[1],contextptr);
-    if (s==3)
-      return geometric_cdf(v[0],v[2],contextptr)-geometric_cdf(v[0],v[1]-1,contextptr);
+    if (s==3){
+      gen k1=v[1];
+      if (pas_off_integers(k1,contextptr))
+	k1=_ceil(k1,contextptr);
+      return geometric_cdf(v[0],v[2],contextptr)-geometric_cdf(v[0],k1-1,contextptr);
+    }
     return gensizeerr(contextptr);
   }
   static const char _geometric_cdf_s []="geometric_cdf";
@@ -2673,6 +2911,7 @@ namespace giac {
     return _ceil(ln(1-P,contextptr)/ln(1-p,contextptr),contextptr);
   }
   gen _geometric_icdf(const gen & g,GIAC_CONTEXT){
+    if (pas_list_x(g)) return pas_map_x(g,_geometric_icdf,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     if (g.type!=_VECT)
       return symbolic(at_geometric_icdf,g);
@@ -4231,7 +4470,7 @@ namespace giac {
   static define_unary_function_eval (__hidden_name,&_constants_catalog,_hidden_name_s);
   define_unary_function_ptr5( at_hidden_name ,alias_at_hidden_name,&__hidden_name,0,T_NUMBER);
 
-#if defined(VISUALC) || defined(BESTA_OS)
+#if !defined __GNUC__ && (defined(VISUALC) || defined(BESTA_OS))
   const double M_E=2.7182818284590452;
 #endif
 

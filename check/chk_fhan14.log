@@ -33,9 +33,10 @@ facteurs multiples,11
 facteurs multiples,13
 facteurs multiples,19
 facteurs multiples,23
-// Time 0.09
+// Time 0.11
 // Time 0
 // Time 0
+// Time 0.02
 // Time 0.02
 // Time 0
 // Time 0
@@ -47,8 +48,7 @@ facteurs multiples,23
 // Time 0
 // Time 0
 // Time 0
-// Time 0
-// Time 0
+// Time 0.01
 f est irred
 // Time 0
 // Time 0
@@ -72,7 +72,7 @@ on a bien trouve tous les facteurs
 x^2+9*x+17,est un diviseur dans Z
 // Time 0
 // Time 0
-// Time 0
+// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -81,5 +81,5 @@ x^2+9*x+17,est un diviseur dans Z
 // Time 0.01
 // Time 0
 // Time 0
-// Total time 0.15
+// Total time 0.21
 PASS chk_fhan14 (exit status: 0)

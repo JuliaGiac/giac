@@ -1625,6 +1625,11 @@ namespace giac {
 	maxv=tmp;
     }
     double eps1=1/(evalf_double(maxv,1,contextptr)._DOUBLE_val);
+    // a coefficient past the double range gives maxv an infinite double and eps1=0, then
+    // nbits=int(-3.2*log(0)) is int(+inf): the wasm build saturates it to INT_MAX and mpfr_init2 aborts (a trap); the
+    // smallest normal double is the finest ratio a double eps can hold
+    if (!(eps1>0))
+      eps1=2.2250738585072014e-308;
     if (debug_infolevel)
       CERR << "proot coefficients ratio " << eps1 << '\n';
     if (eps1<eps){
@@ -2019,6 +2024,8 @@ namespace giac {
     else {
       eps=save_eps;
       double eps1=1/(evalf_double(maxvt,1,contextptr)._DOUBLE_val);
+      if (!(eps1>0)) // as in balance (an infinite maxvt, rprec=int(+inf) below)
+	eps1=2.2250738585072014e-308;
       if (debug_infolevel)
 	CERR << "proot after shift: coefficients ratio " << eps1 << '\n';
       if (eps1<eps)
@@ -2689,7 +2696,7 @@ namespace giac {
 #else // HAVE_LIBMPFR
     int nbits=45;
     rprec = 37;
-    vecteur v_accurate(*evalf_double(v,1,contextptr)._VECTptr);
+    vecteur v_accurate(gen2vecteur(evalf_double(v,1,contextptr)));
     if (crystalball.empty()){
       in_proot(v,eps,rprec,crystalball,true,contextptr);
       // CERR << crystalball << '\n';
@@ -2713,7 +2720,7 @@ namespace giac {
 	crystalball.pop_back();
       }
       else
-	r=a_root(*evalf_double(cur_v,1,contextptr)._VECTptr,0,eps); // ok
+	r=a_root(gen2vecteur(evalf_double(cur_v,1,contextptr)),0,eps); // ok
       if (debug_infolevel)
 	CERR << "Approx float root " << r << '\n';
       if (is_undef(r))
@@ -5098,19 +5105,20 @@ namespace giac {
 
   gen exact_div(const gen & a,const gen & b){
     if (a.type==_POLY && b.type==_POLY){
+#if 1
+      polynome quo, rem;
+      if (!divrem1(*a._POLYptr,*b._POLYptr,quo,rem,2)) 
+	CERR << "bad quo("+a.print()+","+b.print()+")" << '\n';
+      gen res=quo;
+#else
       polynome *quoptr=new polynome, rem;
       if (!divrem1(*a._POLYptr,*b._POLYptr,*quoptr,rem,2)) 
 	CERR << "bad quo("+a.print()+","+b.print()+")" << '\n';
       gen res= *quoptr;
+#endif
       // if (!is_zero(a-b*res))
       //	CERR << "Bad division" << '\n';
       return res;
-#if 0
-      polynome quo;
-      if (!a._POLYptr->Texactquotient(*b._POLYptr,quo))
-	CERR << "bad quo("+a.print()+","+b.print()+")" << '\n';
-      return quo;
-#endif
     }
     return rdiv(a,b,context0);
   }
@@ -7421,7 +7429,10 @@ namespace giac {
       if (is_fully_numeric(a))
 	res=a;
       else {
-	res=*evalf_VECT(a,0,1,contextptr)._VECTptr;
+        gen ev=evalf_VECT(a,0,1,contextptr);
+	if (ev.type!=_VECT || !ckmatrix(*ev._VECTptr)) // (interrupted: an error value)
+	  return 0;
+	res=*ev._VECTptr;
 	num_mat=is_fully_numeric(res);
 	if (!num_mat){
 	  *logptr(contextptr) << "Converting to exact approx symbolic matrix\n" ;
@@ -7476,7 +7487,10 @@ namespace giac {
     if (convert_internal){
       // convert a to internal form
       alg_lvar_halftan_tsimplify(res,lv,contextptr);
-      res = *(e2r(res,lv,contextptr)._VECTptr);
+      gen er=e2r(res,lv,contextptr);
+      if (er.type!=_VECT || !ckmatrix(*er._VECTptr)) // (interrupted: an error value)
+	return 0;
+      res = *er._VECTptr;
       if (lv.size()==1 && lv.front().type==_VECT && lv.front()._VECTptr->empty()){
 	// cleanup res
 	int i=0;
@@ -7788,6 +7802,8 @@ namespace giac {
       }
     }
 
+    if (!ckmatrix(res)) // (interrupted: a row is an error value)
+      return 0;
     std_matrix<gen> M;
     matrice2std_matrix_gen(res,M);
     // vecteur vtemp;
@@ -7803,7 +7819,9 @@ namespace giac {
       if (status==3 || is_exactly_zero(det)){
       //if (status==3 || is_zero(det,contextptr) ){ 
 	// not Cramer like, re-reduce, 
-	pivots.clear();
+        if (!ckmatrix(res))
+	  return 0;
+        pivots.clear();
 	matrice2std_matrix_gen(res,M); det=detnum=detnumsave;// this should be commented but some outputs are more complicated
 	rref_reduce(M,pivots,permutation,det,detnum,algorithm,l,lmax,c,cmax,dont_swap_below,rref_or_det_or_lu,fullreduction,eps,step_rref,lv,convert_internal,num_mat,contextptr);
       }
@@ -13613,9 +13631,9 @@ namespace giac {
       P[i][i]=1;
     if (modulo<0){
 #ifdef HAVE_LIBMPFR
-      matrice2std_matrix_gen(*evalf(gen(M),1,contextptr)._VECTptr,H);
+      matrice2std_matrix_gen(gen2vecteur(evalf(gen(M),1,contextptr)),H);
 #else
-      matrice2std_matrix_gen(*evalf_double(gen(M),1,contextptr)._VECTptr,H);
+      matrice2std_matrix_gen(gen2vecteur(evalf_double(gen(M),1,contextptr)),H);
 #endif
     }
     else
@@ -16837,7 +16855,7 @@ namespace giac {
     return true;
   }
 
-#if defined GIAC_HAS_STO_38 || defined NSPIRE || defined NSPIRE_NEWLIB || defined FXCG || defined GIAC_GGB || defined USE_GMP_REPLACEMENTS || defined KHICAS || defined SDL_KHICAS
+#if defined GIAC_HAS_STO_38 || defined NSPIRE || defined NSPIRE_NEWLIB || defined FXCG || defined GIAC_GGB || defined USE_GMP_REPLACEMENTS || defined KHICAS || defined SDL_KHICAS || defined GIAC_SILENT
 #else
   bool log_output_redirect::has_warning() const {
     return buffer.str().find(gettext("warning"))!=std::string::npos ||

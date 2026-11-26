@@ -13,7 +13,7 @@ Added 0 synonyms
 // Warning: rl, declared as global variable(s). If symbolic variables are required, declare them as local and run purge
 // End defining ql
 ============== restarted ===============
-// Time 0
+// Time 0.01
 // Time 0
 // Time 0
 // Time 0
@@ -25,23 +25,23 @@ Warning! Could not loop or reach boundaries
 Warning! Could not loop or reach boundaries 
 Warning! Could not loop or reach boundaries 
 Warning! Could not loop or reach boundaries 
-// Time 0.1
+// Time 0.18
 // Time 0
-// Time 0
+// Time 0.02
 // Time 0
 // Time 0
 // Time 0
 c'est bon, le point trouve est bien sur la cubique
-// Time 0.01
 // Time 0
 // Time 0
 // Time 0.01
+// Time 0
 // Time 0
 // Time 0
 // Time 0
 S est
  bien  lisse. on peut continuer!
-// Time 0.01
+// Time 0.02
 // Time 0
 // Time 0
 // Time 0
@@ -53,7 +53,6 @@ c'est bon
 // Time 0
 // Time 0
 // Time 0
-// Time 0
 // Time 0.01
 // Time 0
 // Time 0
@@ -61,33 +60,34 @@ c'est bon
 // Time 0
 // Time 0
 // Time 0
+// Time 0
+// Time 0.02
+// Time 0
 // Time 0.01
-// Time 0.01
-// Time 0.01
-// Time 0.24
+// Time 0.27
 // Time 0.02
 // Time 0
 // Time 0
 // Time 0
 // Time 0.01
-// Time 0.01
+// Time 0
 // Time 0.01
 Warning, argument is not an equation, solving (-4*a^6*u+10*a^6*v+57*a^6-18*a^5*u-13*a^5*v+13*a^5-4*a^4*u-15*a^4*v+92*a^4-10*a^3*u+67*a^3*v-458*a^3-66*a^2*u+91*a^2*v+523*a^2-62*a*u+36*a*v-885*a-16*u+4*v+298)/(a^6-2*a^5+9*a^4-16*a^3+24*a^2-32*a+16)=0
 // Time 0
+// Time 0.02
+// Time 0.03
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
 // Time 0.01
-// Time 0.05
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
 // Time 0.01
 // Time 0
 // Time 0
 // Time 0.01
 c'est bien de degre 27
 // Time 0
-// Total time 0.54
+// Total time 0.67
 PASS chk_fhan17 (exit status: 0)

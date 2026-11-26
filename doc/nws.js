@@ -81,6 +81,362 @@ var UI = {
       return 0;
     }
   },
+  b64_main : "/7V9SADwuPgAJ3xMoEd6SADwsvhP8AAAeUlB8qUCeUuYR0DyHWBP8LIBT/DPAnZLT/AKBADwAfhA4CC1c02t6wUNAJABlAKocUygR29NDesFDSC9/7VvSkjyz1RP8AEDEWhB6gQBAPAa+AP6APCB6gABEWD/vf61Z0pP8AEDEWgA8Aj4A/oA8AHqAAEAKQi/ASD+vQK1D/JNEQhcAr0CtU6hCFwCvQC1//fU/0/wZAAA8Fb4CEb/997/AL1P8AEAT/AAAf/37/8BKAi/U0gIvwDwUvhISADwT/hP8AEAT/ABAf/34P8BKAi/TUgIvwDwQ/gIvwDwKfhP8AEAT/ACAf/30f8BKAi/RkgIv4BHCL8A8Bv4T/ACAE/wAAH/98P/ASgIvz1ICL8A8Cb4CL8A8Az4T/ACAE/wAQH/97T/ASgIvwDwI/i55/C9/ucDtTZJT/AAAAhgA70CtTRJCGACvQK1T/CUAQD7AfAAv6DxAQAAKIi/+ecCvf/36P8BRghogPMIiAHxBAEIaABHH7VA8gRAT/SIcU/wjAIlS0/wUAT/90v/T/AIAE/wBQH/93v/ASgYv/bnT/AAABFJQfKlAhBLmEdA8h1gT/CyAU/wzwINS0/wCgT/9zD/H70PCggHBgMCAAEBCQsEBQYUAAJYz4UAABAIAlgAIAAAkM1aAAhAAfAAkQMACMDAAAi49QEA5TcACBQAAlgQCAJYAJjwHyAAQJDZgQAIlO0A4AjtAOAwxwAI",
+  b64_main115 : "/7V6SADwuPgAJ3lMoEd3SADwsvhP8AAAdklB8qUCdkuYR0DyHWBP8LIBT/DPAnNLT/AKBADwAfhA4CC1cE2t6wUNAJABlAKobkygR2xNDesFDSC9/7VsSkDy/xRP8AEDEWhB6gQBAPAa+AP6APCB6gABEWD/vf61ZEpP8AEDEWgA8Aj4A/oA8AHqAAEAKQi/ASD+vQK1D/JNEQhcAr0CtU6hCFwCvQC1//fU/0/wZAAA8Fb4CEb/997/AL1P8AEAT/AAAf/37/8BKAi/UEgIvwDwUvhFSADwT/hP8AEAT/ABAf/34P8BKAi/SkgIvwDwQ/gIvwDwKfhP8AEAT/ACAf/30f8BKAi/Q0gIv4BHCL8A8Bv4T/ACAE/wAAH/98P/ASgIvzpICL8A8Cb4CL8A8Az4T/ACAE/wAQH/97T/ASgIvwDwI/i55/C9/ucDtTNJT/AAAAhgA70CtTFJCGACvQK1T/CUAQD7AfAAv6DxAQAAKIi/+ecCvf/36P8BRghogPMIiAHxBAEIaABHH7VA8gRAT/SIcU/wjAIiS0/wUAT/90v/T/AIAE/wBQH/93v/ASgYv/bnT/AAAA5JQfKlAg1LmEdA8h1gT/CyAU/wzwIKS0/wCgT/9zD/H70IBwYFBAMCAAEAAQIDBAUAIAAAkG0OIABAAfAAIQYgAMDAIAC49QEAUVEgABQAAEIQCAJCAADwHyAAQJDZgQAIlO0A4AjtAOAwxyAA",
+  b64_image : "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",
+  b64_about : "L6UQAgD/////////////////////////////////////////////////////////////////////////qiY9/wIAD4gAbQ88ADEPSAA1DzgAKQ+QAA0OcAEPIAL//6UOpAAOwAAMRAIOUAIPIAAPDhQBD4wAJw+gAAkOnAEPiAAbDzwACQ5gAA8gAg8OgAAOzAIPIAL//7MPNAEFD3QBBQ8gAB0PCAIZD2wAIQ+UABkPDAIJDlAADiQBD2AGLQ8gAv//ww8wASEPIAIdDwgLDQ8MAj0P3AApDigHDswBDyAC////CA8AAiEPIAAlDyACXQ8UACEPzAEVDjwADyAC///RDhgKD2AGaw6QDg+kDhcP4A4dD5wADQ8sCwkPpA8ZD5gAFQ8gAv//pg8aM/////////////////////////////////+tDk4aD/Yknw+uMZUPIAL//7sPrh4lD84wGQ9WHxUMfAAPEjERD0YoGQ/SHw0P/jAZD+AAFQ8gAv//zw82IxkPTihZD3wCEQ6GLA8WKScPlAAdDwwBGQ8gAv/+D7o/tQ9KOBUPjigBD84wVQ92LVEPrAYVDmAHD+YsHw8gAv//mw+gCikPQjkhD6ACDQ8gAr0PIAEtDyAC///TD+AOJQ84DhUPSAINDzY6SQ9ABhkOBjUPWAsfDyAC//+/DyALVQ8AHP/+D0Y2//////////8LDgoID+AA/g9oAeoPIAL//g9yFB0P8FQdDw4eKQ7KGQ5+EA+0ACUPPg0ZDmgAD2RVOw8gAv//uw7KIA/wVDMOgFQPYhQXDxIiMQ+0ADEPHAE1DvIRDyAC//+5DkoYDyACYw+KHS0PbhkVD6IiLQ/+IhkOZigPIAL///9aDtQFD1gCNw+iIikP4h4dDyAC///nDpgJDyACHw9kVCUPoGYZDxBiIQ+iIh0P/iIpD6AKxQ8gAv/yDxQX/g+iIv4PIAL+Dwhb///////////////////////////SDvQqDgArDyAC///+D4Bu////////////////////////////xQ8YACEOLjYPcke1Dr5XD2Q3Iw8gAv//9Q58Wg9ORBMPFkMlDqKOD2KbKw9ONxsPOEAdDkAzDyAC///rD1RrMQ+MbC0PMp8dDwZIKQ9ScS8OTmAPIAL///4PwG8aDlpHDyACaw8Ieh8OJgAPIJsjDyAC///ZD/h3GQ9eSCUPIAI9D25ILQ8kRSsPIAL///4PeqI0D2B5HQ9gBjEPoGwdD+AOJw4ESQ8gAv///g+CYv4Pwmb//g8CAP///////////////////////////////////////////////////////////////////9FQEKUQpRA=",
+  // Fonction de log stylisée
+  log:function(message, type = 'info'){
+    const span = document.createElement('div');
+    span.className = type;
+    span.textContent = message + '\n';
+    $id('output').appendChild(span);
+    $id('output').scrollTop = $id('output').scrollHeight;
+  },
+  clear_log:function() { $id('output').innerHTML = ''; },
+  // Utilitaire : Chercher un pattern d'octets
+  find_pattern:function(data, pattern) {
+    let L=data.length;
+    if (L>65536) L=65536;
+    for (let i=0; i<=L-pattern.length; i++) {
+      let match = true;
+      for (let j = 0; j<pattern.length; j++) {
+        if (data[i+j]!=pattern[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return i;
+    }
+    return -1;
+  },
+  // Utilitaire : Convertir une chaîne Base64 en Uint8Array
+  base64_to_uint8:function(base64) {
+    try {
+      const binary_string = atob(base64.trim());
+      const len = binary_string.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+      }
+      return bytes;
+    } catch (error) {
+      UI.log(`[-] Erreur lors du décodage Base64 d'une ressource intégrée. Vérifiez son contenu.`, 'error');
+      return null;
+    }
+  },
+  // Utilitaire : Injecter des données à un offset fixe (Comportement "dd seek=X")
+  inject_bytes:function(dest_data, src_data, offset) {
+    if (offset + src_data.length > dest_data.length) {
+      UI.log(`[-] Erreur d'injection : L'offset ${offset} + la taille de la ressource (${src_data.length} octets) dépassent la taille du fichier d'origine.`, 'error');
+      return false;
+    }
+    dest_data.set(src_data, offset);
+    return true;
+  },
+  // Déclencheur de téléchargement
+  download_file:function(data, original_name, patchsuffix=true) {
+    const blob = new Blob([data], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ext_index = original_name.lastIndexOf('.');
+    const name = ext_index !== -1 ? original_name.substring(0, ext_index) : original_name;
+    const ext = ext_index !== -1 ? original_name.substring(ext_index) : '.bin';
+    
+    a.href = url;
+    a.download = patchsuffix?`${name}_patched${ext}`:original_name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+  // PATCH DU BOOTLOADER
+  patch_bootloader:function(data,filename){
+    UI.clear_log();
+    UI.log('================', 'info');
+    UI.log('Patch bootloader', 'info');
+    UI.log('================', 'info');
+    UI.log(`[*] Analyse du bootloader : (${data.length} octets)`, 'info');
+    
+    let patched_p1 = false;
+    let model=0;
+    
+    // --- Patch 1 : Version N0120 ---
+    const patterns_n0120 = [
+      { bytes: new Uint8Array([0x30, 0x62, 0x00, 0x21, 0xF2, 0x6B, 0x07, 0x20]), name: 'N0120 P1.1 (30 62)' },
+      { bytes: new Uint8Array([0x20, 0x62, 0x00, 0x21, 0xE2, 0x6B, 0x07, 0x20]), name: 'N0120 P1.2 (20 62)' }
+    ];
+    
+    for (const p of patterns_n0120) {
+      const offset = UI.find_pattern(data, p.bytes);
+      if (offset !== -1) {
+        data[offset] = 0x00; data[offset+1] = 0xBF; // NOP
+        if (offset + 13 < data.length) {
+          data[offset+12] = 0x00; data[offset+13] = 0xBF; // NOP
+	  model=120;
+          UI.log(`[+] Matériel détecté : Numworks N0120`, 'success');
+          UI.log(`[+] ${p.name} appliqué (NOPs en 0x${offset.toString(16).toUpperCase()} et 0x${(offset+12).toString(16).toUpperCase()})`, 'success');
+          patched_p1 = true;
+          break;
+        }
+      }
+    }
+    
+    // --- Patch 1 : Version N0115 ---
+    if (!patched_p1) {
+      const pattern_n0115 = new Uint8Array([0xC5, 0xF8, 0x14, 0x0C, 0x10, 0x21, 0xD5, 0xF8]);
+      const offset_n0115 = UI.find_pattern(data, pattern_n0115);
+      if (offset_n0115 !== -1) {
+	model=115;
+        UI.log(`[+] Matériel détecté : Numworks N0115`, 'success');
+        data[offset_n0115] = 0x00; data[offset_n0115+1] = 0xBF;
+        data[offset_n0115+2] = 0x00; data[offset_n0115+3] = 0xBF;
+        
+        const offset_2 = offset_n0115 + 18;
+        if (offset_2 + 3 < data.length) {
+          data[offset_2] = 0x00; data[offset_2+1] = 0xBF;
+          data[offset_2+2] = 0x00; data[offset_2+3] = 0xBF;
+          UI.log(`[+] Pattern N0115 appliqué (4 octets NOP en 0x${offset_n0115.toString(16).toUpperCase()} et 0x${offset_2.toString(16).toUpperCase()})`, 'success');
+          patched_p1 = true;
+        }
+      }
+    }
+    
+    if (!patched_p1) {
+      UI.log(`[-] Attention : Aucun pattern pour le Patch 1 (N0120/N0115) trouvé.`, 'error');
+    }
+    
+    // --- Patch 2 : BL 0xBC00 Dynamique ---
+    pattern_bl = new Uint8Array([0x6B, 0x46, 0x10, 0x68, 0x51, 0x68]);
+    offset_bl = UI.find_pattern(data, pattern_bl);
+    
+    if (offset_bl !== -1) {
+      const patch_address = offset_bl + 22;
+      const target_address = 0xBC00;
+      const pc_address = patch_address + 4;
+      let jump_offset = target_address - pc_address;
+      
+      let jump_val = jump_offset >> 1;
+      const S = jump_val < 0 ? 1 : 0;
+      if (jump_val < 0) {
+        jump_val = (1 << 24) + jump_val;
+      }
+      
+      const I1 = (jump_val >> 22) & 1;
+      const I2 = (jump_val >> 21) & 1;
+      const J1 = (I1 ^ S) === 0 ? 1 : 0;
+      const J2 = (I2 ^ S) === 0 ? 1 : 0;
+      
+      const imm10 = (jump_val >> 11) & 0x3FF;
+      const imm11 = jump_val & 0x7FF;
+      
+      const first_half = 0xF000 | (S << 10) | imm10;
+      const second_half = 0xF800 | (J1 << 13) | (J2 << 11) | imm11;
+      
+      if (patch_address + 3 < data.length) {
+        data[patch_address] = first_half & 0xFF;
+        data[patch_address+1] = (first_half >> 8) & 0xFF;
+        data[patch_address+2] = second_half & 0xFF;
+        data[patch_address+3] = (second_half >> 8) & 0xFF;
+        
+        UI.log(`[+] [Patch BL] Saut dynamique injecté à l'offset 0x${patch_address.toString(16).toUpperCase()}`, 'success');
+        patched_p1 = true;
+      }
+    } else {
+      UI.log(`[-] Pattern 2 (BL) non trouvé.`, 'error');
+    }
+    
+    // --- ÉTAPE INJECTION DES RESSOURCES ---
+    UI.log(`[*] Début de l'injection des fichiers binaires embarqués...`, 'info');
+    
+    const main_bytes = UI.base64_to_uint8(model==115?UI.b64_main115:UI.b64_main);
+    const image_bytes = UI.base64_to_uint8(UI.b64_image);
+    const about_bytes = UI.base64_to_uint8(UI.b64_about);
+    
+    let injection_success = true;
+    
+    if (main_bytes && main_bytes.length > 0) {
+      if (UI.inject_bytes(data, main_bytes, 48128)) {
+	if (model==115){
+	  log(`[+] main115.bin injecté en 48128 (0xBC00) - [${main_bytes.length} octets]`, 'success');
+          pattern_bl = new Uint8Array([0x08, 0xb5, 0x01, 0x22, 0x00, 0x21, 0x06, 0x48]);
+          offset_bl = find_pattern(data, pattern_bl);
+          if (offset_bl>0){
+            data[0xbc04]=0;
+            data[0xbc05]=0xbf;
+            data[0xbdf0]=(offset_bl+1)%256;
+            data[0xbdf1]=(offset_bl/256)%256;
+            log(`[+] activate screen n115 injecté en 0xBDF0 [${offset_bl+1}]`, 'success');
+          }
+        }
+	else {
+          log(`[+] main.bin injecté en 48128 (0xBC00) - [${main_bytes.length} octets]`, 'success');
+          pattern_bl = new Uint8Array([0x08, 0xb5, 0x01, 0x22, 0x03, 0x21, 0x06, 0x48]);
+          offset_bl = find_pattern(data, pattern_bl);
+          if (offset_bl>0){
+            data[0xbc04]=0;
+            data[0xbc05]=0xbf;
+            data[0xbdfc]=(offset_bl+1)%256;
+            data[0xbdfd]=(offset_bl/256)%256;
+            log(`[+] activate screen n120 injecté en 0xBDFC [${offset_bl+1}]`, 'success');
+          }
+        }
+      } else { injection_success = false; }
+    }
+    if (image_bytes && image_bytes.length > 0) {
+      if (UI.inject_bytes(data, image_bytes, 49344)) {
+        UI.log(`[+] image.bin injecté en 49344 (0xC0C0) - [${image_bytes.length} octets]`, 'success');
+      } else { injection_success = false; }
+    }
+    if (about_bytes && about_bytes.length > 0) {
+      if (UI.inject_bytes(data, about_bytes, 50992)) {
+        UI.log(`[+] about.bin injecté en 50992 (0xC730) - [${about_bytes.length} octets]`, 'success');
+      } else { injection_success = false; }
+    }
+    
+    if (patched_p1 && injection_success) {
+      UI.log(`[+] Opération globale réussie ! Sauvegarde du bootloader patché...`, 'success');
+      UI.download_file(data, filename);
+    } else {
+      UI.log(`[-] Échec : Le processus de modification a rencontré des erreurs.`, 'error');
+    }
+    $id('output').scrollIntoView();
+  },
+  patch_bootloader_from_dfu:function(){
+    if (!confirm("Attention! Non compatible avec des calculatrices installees en usine avec Epsilon 25."))
+      return;   
+    UI.calc=2;
+    UI.nws_connect();
+    window.setTimeout(UI.patch_bootloader_from_dfu_,100);    
+  },
+  patch_bootloader_from_dfu_:async function(){
+    console.log(UI.calculator,UI.calculator_connected);
+    if (UI.calculator==0 || !UI.calculator_connected){
+      if (UI.calculator) UI.calculator.stopAutoConnect();
+      UI.nws_detect(UI.numworks_retry,UI.nws_detect_failure);
+      return;
+    }
+    let pinfo = await UI.calculator.getPlatformInfo();
+    let storageaddr=pinfo["storage"]["address"],bootsize=0x10000;
+    UI.calculator.device.startAddress = 0x200000;
+    UI.calculator.device.transferSize = 2048;
+    if (storageaddr>=0x24000000){ // n0120
+      bootsize=0x80000; // should be 0x80000 but crash, why?
+      UI.calculator.device.startAddress = 0x08000000;;
+    }
+    const blob=await UI.calculator.device.do_upload(UI.calculator.device.transferSize,bootsize,false);
+    let blobb = await blob.arrayBuffer();
+    let dv=new Uint8Array(blobb);
+    let filename="epsiloninternal.bin"
+    UI.download_file(dv, filename,false);
+    UI.patch_bootloader(dv,filename,true);
+    setTimeout(() => {
+      $id('output').scrollIntoView();
+      $id('output').scrollTop = 0;
+    }, 0);    
+  },
+  patch_bootloader_from_file:function(){
+    const file = bootloader_input.files[0];
+    if (!file) return;    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const buffer = e.target.result;
+      const data = new Uint8Array(buffer);
+      UI.patch_bootloader(data,file.name);
+    }
+    reader.readAsArrayBuffer(file);
+  },
+  // PATCH DU KERNEL
+  patch_kernel:function(data,filename){
+    UI.clear_log();
+    UI.log('================', 'info');
+    UI.log('  Patch kernel', 'info');
+    UI.log('================', 'info');
+    let any_kernel_patched = false;
+    
+    const pattern_k1 = new Uint8Array([0x20, 0x62, 0x00, 0x21, 0xE2, 0x6B, 0x07, 0x20]);
+    const offset_k1 = UI.find_pattern(data, pattern_k1);
+    if (offset_k1 !== -1) {
+      data[offset_k1] = 0x00; data[offset_k1+1] = 0xBF;
+      if (offset_k1 + 13 < data.length) {
+        data[offset_k1+12] = 0x00; data[offset_k1+13] = 0xBF;
+        UI.log(`[+] [Kernel Patch 1] Appliqué (NOPs en 0x${offset_k1.toString(16).toUpperCase()} et 0x${(offset_k1+12).toString(16).toUpperCase()})`, 'success');
+        any_kernel_patched = true;
+      }
+    }
+    
+    const pattern_k2 = new Uint8Array([0x4F, 0xF0, 0x00, 0x60, 0x05, 0xF1, 0x00, 0x65]);
+    const offset_k2 = UI.find_pattern(data, pattern_k2);
+    if (offset_k2 !== -1) {
+      const patch_addr_k2 = offset_k2 + 8;
+      if (patch_addr_k2 + 3 < data.length) {
+        data[patch_addr_k2] = 0x00; data[patch_addr_k2+1] = 0xBF;
+        data[patch_addr_k2+2] = 0x00; data[patch_addr_k2+3] = 0xBF;
+        UI.log(`[+] [Kernel Patch 2] BL neutralisé (2 NOPs insérés à l'offset 0x${patch_addr_k2.toString(16).toUpperCase()})`, 'success');
+        any_kernel_patched = true;
+      }
+    }
+    
+    const pattern_k3 = new Uint8Array([0xC4, 0xF8, 0x98, 0x0D, 0x4F, 0xF0, 0x10, 0x50]);
+    const offset_k3 = UI.find_pattern(data, pattern_k3);
+    if (offset_k3 !== -1) {
+      const patch_addr_k3 = offset_k3 + 6;
+      if (patch_addr_k3 < data.length) {
+        data[patch_addr_k3] = 0x00;
+        UI.log(`[+] [Kernel Patch 3] Constante modifiée (0x10 -> 0x00 à l'offset 0x${patch_addr_k3.toString(16).toUpperCase()})`, 'success');
+        any_kernel_patched = true;
+      }
+    }
+    
+    if (any_kernel_patched) {
+      UI.log(`[+] Succès ! Sauvegarde du kernel patché...`, 'success');
+      UI.download_file(data, filename);
+    } else {
+      UI.log(`[-] Échec : Aucun pattern Kernel N0120 trouvé.`, 'error');
+    }
+    setTimeout(() => {
+      $id('output').scrollIntoView();
+      $id('output').scrollTop = 0;
+    }, 0);    
+  },
+  patch_kernel_from_file:function(){
+    const file = kernel_input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const buffer = e.target.result;
+      const data = new Uint8Array(buffer);
+      UI.log(`[*] Analyse du kernel : ${file.name} (${data.length} octets)`, 'info');
+      UI.patch_kernel(data,file.name); 
+    }
+    reader.readAsArrayBuffer(file);
+  },
+  patch_kernel_from_dfu:function(){
+    UI.calc=2;
+    UI.nws_connect();
+    window.setTimeout(UI.patch_kernel_from_dfu_,100);    
+  },
+  patch_kernel_from_dfu_:async function(){
+    console.log(UI.calculator,UI.calculator_connected);
+    if (UI.calculator==0 || !UI.calculator_connected){
+      if (UI.calculator) UI.calculator.stopAutoConnect();
+      UI.nws_detect(UI.numworks_retry,UI.nws_detect_failure);
+      return;
+    }
+    let pinfo = await UI.calculator.getPlatformInfo();
+    let storageaddr=pinfo["storage"]["address"],bootsize=0x10000;
+    if (storageaddr<0x24000000){
+      alert(UI.langue?'N0120 uniquement!':'N0120 only');
+      return;
+    }
+    UI.calculator.device.startAddress = 0x90000000;
+    UI.calculator.device.transferSize = 0x800;
+    const blobk=await UI.calculator.device.do_upload(UI.calculator.device.transferSize,0x10000,false);
+    let dv=new Uint8Array(await blobk.arrayBuffer());
+    let filename="epsilonkernel.bin";
+    UI.download_file(dv, filename,false);
+    UI.patch_kernel(dv,filename,true);
+  },
   has_kernel_userland:function(data){
     let l=data.byteLength;
     if (l<0x20000) return false;
@@ -102,10 +458,22 @@ var UI = {
     let i=0,l=sig.length;
     for (;i<l;++i){
       let cur=sig[i];
-      if (cur[0]!=fname) continue;
-      console.log('sigfile_index',i,'sig_length',cur[1],'calcdata_length',data.byteLength);
-      if (cur[1]>data.byteLength) continue;
-      let dat=data.slice(0,cur[1]);
+      let offset=0;
+      if (cur[0]=='delta1user.external.bin' && fname=='epsilon.bin')
+        offset=0x10000;
+      else if (cur[0]=='delta2user.external.bin' && fname=='epsilon.bin')
+        offset=0x20000;
+      else if (cur[0]=='delta19user.external.bin' && fname=='epsilon.bin')
+        offset=0x1b0000;
+      else if (cur[0]=='delta29user.external.bin' && fname=='epsilon.bin')
+        offset=0x1b0000;
+      else if (cur[0]!=fname){
+        console.log(cur[0],i);
+        continue;
+      }
+      console.log(cur[0],fname,'sigfile_index',i,'sig_length',cur[1],'offset',offset,'calcdata_length',data.byteLength);
+      if (offset+cur[1]>data.byteLength) continue;
+      let dat=data.slice(offset,offset+cur[1]);
       let digest = await window.crypto.subtle.digest('SHA-256', dat);
       digest=Array.from(new Uint8Array(digest));
       console.log('signature file sha256',cur[2],'calcdata sha256',digest);
@@ -118,10 +486,10 @@ var UI = {
       }
       if (j==32){
 	console.log('signature match',cur[0]);
-	return true;
+	return offset+1; // 1 for kernel+userland, 1+0x10000/0x20000 for userland only
       }      
     }
-    return false;
+    return 0;
   },
   numworks_load:function(backup=false){
     UI.calc=2;
@@ -317,7 +685,13 @@ should_addsys: async function(file) {
     return 0;
   },    
   numworks_install_slotb:function(version_longue=1,tar_only=0){
-    if (tar_only==0 && !confirm(UI.langue==-1?'En confirmant l\'installation, vous acceptez la licence GPL2 de KhiCAS':'If you confirm install, you accept the GPL2 license of KhiCAS'))
+    // version_longue==1 pour KhiCAS slots b et a
+    // version_longue==2 pour delta+KhiCAS locked
+    // ==3 pour unlocked
+    // version_longue==0 && tar_only==-1, install lanceur KhiCAS sur Epsilon
+    // version_longue==0 && tar_only==-2, install lanceur Delta sur Epsilon
+    // tar_only==-3 réinstall lanceur
+    if (tar_only==0 && !confirm(UI.langue==-1?'En confirmant l\'installation, vous acceptez la licence GPL2 de KhiCAS [et la licence CC BY-NC-SA de Delta le cas echeant]':'If you confirm install, you accept the GPL2 license of KhiCAS [and the license CC BY-NC-SA of Delta]'))
       return;
     $id('persoinit').style.display='none';    
     UI.calc=2;
@@ -329,25 +703,147 @@ should_addsys: async function(file) {
       alert(UI.lang==-1?'Pas de calculatrice trouvée. Cliquez sur le bouton Détecter.':'No calculator found. Click on the Detect button');
       return;
     }
-    if (tar_only==0 || tar_only==-1){
+    if (tar_only==0 || tar_only==-1 || tar_only==-2 || tar_only==-3){
       let pinfo = await UI.calculator.getPlatformInfo();
       let sector=(Math.floor(UI.calculator.device.endslot/65536)+1);
       let appstart=0x90000000+sector*65536;
       let n120=UI.calculator.device.startAddress >= 0x24000000;
+      let n120s=(n120?'120':'110');
       let appfile='sector'+sector.toString(16)+'v'+UI.calculator.device.epsilon+(n120?'.120':'.110');
+      let installdelta='n'+n120s+'redist';
+      if (version_longue==3)
+        installdelta += '_unlocked';
+      let eps=UI.calculator.device.epsilon;
+      console.log(eps);
+      // N.B. for Delta, eps=='23.12.0', the "normal" install procedure
+      // will work, it's just that the shifted Delta userland is not useful
+      eps=eps.substring(0,2);
+      let n110_19=!n120 && eps=='19';
+      if (eps<'22'){
+        installdelta += '19';
+        if (version_longue==3 && n110_19){
+          alert('Please upgrade kernel to version 22 at least.');
+          return 22;
+        }
+      }
+      installdelta += '.bin';
+      let rundelta='rundelta'+n120s+'_sector';
+      let deltasector=0x170000;
+      if (n120){
+        if (eps=='19' || eps=='24')
+          rundelta += '17';
+        else if (eps=='25' || eps=='20'){
+          deltasector=0x180000;
+          rundelta += '18';
+        }
+        else { // 21, 22, 23
+          rundelta += '19';
+          deltasector=0x190000;
+        }
+      } else {
+        if (eps=='24' || eps=='25')
+          rundelta += '17';
+        else if (eps=='19'){
+          deltasector=0x150000;
+          rundelta += '15';
+        }
+        else if (eps=='21' || eps=='22'){
+          deltasector=0x180000;
+          rundelta += '18';
+        }
+        else {
+          rundelta += '19';
+          deltasector=0x190000;
+        }
+      }
       console.log('install_slotb version_longue tar_only',version_longue,tar_only);
-      console.log('file transfered',appfile,'1st external app address','0x'+appstart.toString(16));
-      UI.print('file transfered '+appfile+', 1st external app address 0x'+appstart.toString(16));
-      if (tar_only==-1){
-	UI.calculator.device.startAddress = appstart; // n120?0x90190000:0x90180000;
-	UI.calculator.device.logProgress(0,'KhiCAS launcher at '+appstart);
-	let data=await UI.loadfile(appfile);
-	// let data=await UI.loadfile(n120?"sector19":"sector18");
-	let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
-	if (res==0){
-	  alert(UI.langue==-1?'Erreur d\'ecriture flash':'Error writing flash');
-	  return 2;
-	}
+      if (version_longue==2 || version_longue==3 || tar_only==-2 || tar_only==-3){
+        console.log('delta',n120s,installdelta,rundelta,deltasector.toString(16),eps);
+        //return 0; // debug
+      }
+      else {
+        console.log('file transfered',appfile,'1st external app address','0x'+appstart.toString(16));
+        UI.print('file transfered '+appfile+', 1st external app address 0x'+appstart.toString(16));
+      }
+      if (tar_only==-1){ // run khicas from Epsilon
+	      UI.calculator.device.startAddress = appstart; // n120?0x90190000:0x90180000;
+	      UI.calculator.device.logProgress(0,'KhiCAS launcher at '+appstart.toString(16));
+	      let data=await UI.loadfile(appfile);
+	      // let data=await UI.loadfile(n120?"sector19":"sector18");
+	      let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	      if (res==0){
+	        alert(UI.langue==-1?'Erreur d\'ecriture flash':'Error writing flash');
+	        return 2;
+	      }
+        return 0;
+      }
+      if (version_longue==3){
+	      UI.calculator.device.startAddress = n120?0x90020000:0x90010000;
+	      UI.calculator.device.logProgress(0,'Delta unlocked+extapp');
+	      let data=await UI.loadfile(installdelta);
+	      let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	      if (res==0){
+	        alert(UI.langue==-1?'Erreur d\'ecriture flash. Reessayer depuis reset+6':'Error writing flash. Try again from reset+6');
+	        return 2;
+	      }
+        return 0;
+      }
+      if (version_longue==2){
+	      UI.calculator.device.startAddress = 0x901b0000;
+	      UI.calculator.device.logProgress(0,'Delta (1b)+extapp');
+	      let data=await UI.loadfile(installdelta);
+	      let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	      if (res==0){
+	        alert(UI.langue==-1?'Erreur d\'ecriture flash sur la fin du slot A ou dans le slot B. Reessayer depuis reset+6':'Error writing flash at end of slot A or in slot B. Try again from reset+6');
+	        return 2;
+	      }
+        tar_only=-2; 
+      }
+      if (tar_only==-3){ // reactivater le lanceur de delta 
+        if (n110_19){
+          // model=n0110 19.5.0 or n0115 19.5.9?
+          let n115=UI.calculator.device.epsilon=='19.5.9';
+          if (n115)
+            UI.calculator.device.startAddress=0x2001446c;
+          else
+            UI.calculator.device.startAddress=0x20009bf8;
+          UI.calculator.transferSize=4;
+	        let data=await UI.loadfile('0x1');
+	        let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	        if (res==0){
+	          alert(UI.langue==-1?'Erreur d\'ecriture':'Write error');
+	          return 2;
+	        }
+          return 0;
+        }
+        tar_only=-2;
+      }
+      if (tar_only==-2){ // run delta from Epsilon
+	      UI.calculator.device.startAddress = 0x90000000+deltasector; 
+	      UI.calculator.device.logProgress(0,'Delta launcher at '+UI.calculator.device.startAddress.toString(16));
+	      let data=await UI.loadfile(rundelta);
+	      // let data=await UI.loadfile(n120?"sector19":"sector18");
+	      let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	      if (res==0){
+	        alert(UI.langue==-1?'Erreur d\'ecriture flash':'Error writing flash');
+	        return 2;
+	      }
+        if (n110_19){
+          // model=n0110 19.5.0 or n0115 19.5.9?
+          let n115=UI.calculator.device.epsilon=='19.5.9';
+          if (n115)
+            UI.calculator.device.startAddress=0x2001446c;
+          else
+            UI.calculator.device.startAddress=0x20009bf8;
+          UI.calculator.transferSize=4;
+	        let data=await UI.loadfile('0x1');
+	        let res=await UI.calculator.device.do_download(UI.calculator.transferSize, data, false);
+	        if (res==0){
+	          alert(UI.langue==-1?'Erreur d\'ecriture':'Write error');
+	          return 2;
+	        }
+          return 0;
+        }
         return 0;
       }
       if (version_longue){
@@ -509,69 +1005,69 @@ should_addsys: async function(file) {
       return -1;
     }
     // UI.print(UI.langue==-1?'Rendre les applications externes visibles fonctionne avec Epsilon 19.5':'Works with Epsilon 19.5');
-const address = 0x90200000;
-// Commande DFUse (via DFU_DNLOAD)
-const buf = new ArrayBuffer(5);
-const view = new DataView(buf);
-view.setUint8(0, 0x21);  // SET_ADDRESS_POINTER (commande DFUse)
-view.setUint32(1, 0x90200000, true);
-
-await UI.calculator.device.device_.controlTransferOut({
+    const address = 0x90200000;
+    // Commande DFUse (via DFU_DNLOAD)
+    const buf = new ArrayBuffer(5);
+    const view = new DataView(buf);
+    view.setUint8(0, 0x21);  // SET_ADDRESS_POINTER (commande DFUse)
+    view.setUint32(1, 0x90200000, true);
+    
+    await UI.calculator.device.device_.controlTransferOut({
+      requestType: 'class',
+      recipient: 'interface',
+      request: 0x01,  // DFU_DNLOAD (commande DFU standard)
+      value: 0,
+      index: 0
+    }, buf);
+    
+    // 2. Attendre et vérifier le statut
+    await new Promise(r => setTimeout(r, 50));
+    
+    let st=await UI.calculator.device.device_.controlTransferIn({
+      requestType: 'class',
+      recipient: 'interface',
+      request: 0x03,      // DFU_GETSTATUS
+      value: 0,
+      index: 0
+    }, 6);  // 6 bytes de statut DFU
+    console.log(st);
+    
+    st=await UI.calculator.device.device_.controlTransferIn({
     requestType: 'class',
-    recipient: 'interface',
-    request: 0x01,  // DFU_DNLOAD (commande DFU standard)
-    value: 0,
-    index: 0
-}, buf);
-
-// 2. Attendre et vérifier le statut
-await new Promise(r => setTimeout(r, 50));
-
-let st=await UI.calculator.device.device_.controlTransferIn({
-    requestType: 'class',
-    recipient: 'interface',
-    request: 0x03,      // DFU_GETSTATUS
-    value: 0,
-    index: 0
-}, 6);  // 6 bytes de statut DFU
-      console.log(st);
-      
-st=await UI.calculator.device.device_.controlTransferIn({
-    requestType: 'class',
-    recipient: 'interface',
-    request: 0x03,      // DFU_GETSTATUS
-    value: 0,
-    index: 0
-}, 6);  // 6 bytes de statut DFU
-      console.log(st);      
-
-      
-// 3. Paquet vide avec wValue=0 pour terminer la commande SET_ADDRESS
-await UI.calculator.device.device_.controlTransferOut({
-    requestType: 'class',
-    recipient: 'interface',
-    request: 0x01,      // DFU_DNLOAD
-    value: 2,           // wValue = 2 for leave
-    index: 0
-}, new ArrayBuffer(0));
-      
-st=await UI.calculator.device.device_.controlTransferIn({
-    requestType: 'class',
-    recipient: 'interface',
-    request: 0x03,      // DFU_GETSTATUS
-    value: 0,
-    index: 0
-}, 6);  // 6 bytes de statut DFU
-      console.log(st);
-      return;
-// 4. :leave - DFU_DETACH
-await UI.calculator.device.device_.controlTransferOut({
-    requestType: 'class',
-    recipient: 'interface',
-    request: 0x00,      // DFU_DETACH
-    value: 0,
-    index: 0
-});
+      recipient: 'interface',
+      request: 0x03,      // DFU_GETSTATUS
+      value: 0,
+      index: 0
+    }, 6);  // 6 bytes de statut DFU
+    console.log(st);      
+    
+    
+    // 3. Paquet vide avec wValue=0 pour terminer la commande SET_ADDRESS
+    await UI.calculator.device.device_.controlTransferOut({
+      requestType: 'class',
+      recipient: 'interface',
+      request: 0x01,      // DFU_DNLOAD
+      value: 2,           // wValue = 2 for leave
+      index: 0
+    }, new ArrayBuffer(0));
+    
+    st=await UI.calculator.device.device_.controlTransferIn({
+      requestType: 'class',
+      recipient: 'interface',
+      request: 0x03,      // DFU_GETSTATUS
+      value: 0,
+      index: 0
+    }, 6);  // 6 bytes de statut DFU
+    console.log(st);
+    return;
+    // 4. :leave - DFU_DETACH
+    await UI.calculator.device.device_.controlTransferOut({
+      requestType: 'class',
+      recipient: 'interface',
+      request: 0x00,      // DFU_DETACH
+      value: 0,
+      index: 0
+    });
   },
   numworks_activateapps:async function(){
     if (UI.calculator==0 || !UI.calculator_connected){
@@ -984,7 +1480,7 @@ await UI.calculator.device.device_.controlTransferOut({
       msg = (UI.langue==-1?'Effacer ':'Erase ')+filename+'. ';
       msg += UI.langue==-1?'Etes-vous sur?':'Are you sure?';
       if (really==2)
-	msg += (UI.langue==-1?'\nSi vous confirmez, votre firmware ne pourra plus etre certifie!':'If you confirm, your firmware can not be certified!');
+	msg += (UI.langue==-1?'\nSi vous confirmez, votre firmware ne sera plus certifié conforme mode examen français!':'If you confirm, your firmware will not be exam-certified!');
       if (!confirm(msg))
 	return 0;
     }
@@ -1245,7 +1741,7 @@ await UI.calculator.device.device_.controlTransferOut({
       console.log('sendtar appstart 1st_modif start size buflength',UI.appsaddress.toString(16),UI.tar_first_modif_offset.toString(16),start.toString(16),size.toString(16),buffer.byteLength.toString(16));
       UI.calculator.device.startAddress = UI.appsaddress+start;
       UI.calculator.device.logProgress(0,'apps');
-      return;
+      // return;
       res=await UI.calculator.device.do_download(UI.calculator.transferSize, buffer, false);      
     }
     else {
@@ -1257,14 +1753,16 @@ await UI.calculator.device.device_.controlTransferOut({
     UI.print('apps OK, press RESET on calculator back');
   },
   numworks_certify:function(sigfile,rwcheck=false){
-    $id('persoinit').style.display='none';    
+    $id('persoinit').style.display='none';
     UI.calc=2;
     UI.nws_connect();
-    window.setTimeout(UI.numworks_certify_,100,sigfile,rwcheck);
+    return new Promise(resolve => {
+      window.setTimeout(() => resolve(UI.numworks_certify_(sigfile,rwcheck)),100);
+    });
   },
   numworks_certify_:async function(sigfile,rwcheck){
     if (UI.calculator==0 || !UI.calculator_connected){
-      alert(UI.langue==-1?UI.chkmsgfr:chkmsgen);
+      alert(UI.langue==-1?UI.chkmsgfr:UI.chkmsgen);
       if (UI.calculator) UI.calculator.stopAutoConnect();
       return -1;
     }
@@ -1281,16 +1779,19 @@ await UI.calculator.device.device_.controlTransferOut({
     if (kern){
       // check 0x90000000 slot A kernel/userland
       res=await UI.sig_check(sigfile,external,'epsilon.bin');
+      let chk26 = res==1;
       if (!res){
         alert(UI.langue==-1?'Kernel/Userland slot A non certifiés.':'Kernel/Userland slot A not certified');
         return 2;
       }
       // ok, check full KhiCAS install at 0x90260000
-      external=await UI.calculator.get_external_flash(0x26);
-      res=await UI.sig_check(sigfile,external,'khi110a');
-      if (!res){
-        alert(UI.langue==-1?'KhiCAS app A non certifiée.':'KhiCAS app A not certified');
-        return 2;
+      if (chk26){
+        external=await UI.calculator.get_external_flash(0x26);
+        res=await UI.sig_check(sigfile,external,'khi110a');
+        if (!res){
+          alert(UI.langue==-1?'KhiCAS app A non certifiée.':'KhiCAS app A not certified');
+          return 2;
+        }
       }
       external=await UI.calculator.get_external_flash(3);
       res=await UI.sig_check(sigfile,external,'khi110ab.tar');
@@ -1303,7 +1804,7 @@ await UI.calculator.device.device_.controlTransferOut({
 	UI.print('R/W check 0x901a00000');
 	res=await UI.calculator.rw_check(0x901a0000,0xc0000);
 	if (!res){
-	  alert(UI.langue==-1?'Echec du test lecture/ecriture 0x901a0000':'Read/Write test failure 0x901c0000');
+	  alert(UI.langue==-1?'Echec du test lecture/ecriture 0x901a0000':'Read/Write test failure 0x901a0000');
 	  return 4;
 	}
       }

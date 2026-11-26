@@ -277,7 +277,7 @@ namespace giac {
       if (ctrl_c || interrupted) { 
 	interrupted = true; ctrl_c=false;
 	gen res;
-	gensizeerr(gettext("Stopped by user interruption."),res);
+	res=gen_oom(); // gensizeerr(gettext("Stopped by user interruption."),res);
 	return res;
       }
       sparse_poly1 s=series__SPOL1(g,*x._IDNTptr,a,ordre,0,contextptr);
@@ -1858,15 +1858,27 @@ namespace giac {
 	    return true;
 	  }
 	  res=symbolic(at_ln,2);
+	  // ln(2) is sum((-1)^(k+1)/k,k,1,inf), so the terms below a are the alternating
+	  // partial sum sum((-1)^(k+1)*R,k,1,a-1) = sum(R,k,1,a-1)-sum(R,k,1,floor((a-1)/2)) (R is c/k: the even
+	  // terms are R(2m)=R(m)/2), not the harmonic sum sum(R,k,1,a-1), which agrees for a=2 only
+	  // (sum((-1)^k/k,k,3,inf) gave 3/2-ln(2), right 1/2-ln(2))
 	  if (a.val>1)
 	    res = res-_sum(makesequence(R,x,1,a.val-1),contextptr);
+	  if (a.val>2)
+	    res = res+_sum(makesequence(R,x,1,(a.val-1)/2),contextptr);
 	  res=res*subst(g/R,x,1,false,contextptr);
 	  return true;
 	}
 	// add sum(1/k^pui,k,a,inf)
 	// -> 2*sum(1/(2*k)^pui,k,a/2,inf)=2^(1-pui)*sum(1/k^pui,k,a/2,inf)
 	res = - _sum(makesequence(R,x,a,plus_inf),contextptr) + pow(2,1-pui,contextptr)*_sum(makesequence(R,x,(a.val+1)/2,plus_inf),contextptr);
-	res = -res*subst(g/R,x,a,false,contextptr);
+	// res is already sum((-1)^k*R,k,a,inf); g/R at a is c*(-1)^a, so the factor is
+	// (-1)^a times it (the summand's coefficient c), not its negation, which is c for an odd a only
+	// (sum((-1)^k/k^2,k,2,inf) gave pi^2/12-1, right 1-pi^2/12)
+	if (a.val%2==0)
+	  res = res*subst(g/R,x,a,false,contextptr);
+	else
+	  res = -res*subst(g/R,x,a,false,contextptr);
 	return true;
       }
       gen n=b-a;

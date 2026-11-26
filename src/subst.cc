@@ -400,7 +400,7 @@ namespace giac {
     vecteur v=*e._SYMBptr->feuille._VECTptr;
     int s=int(v.size());
     if ( (s>1) && (v[1]==i) ){
-      vecteur l(*_lname(newi,contextptr)._VECTptr);
+      vecteur l(gen2vecteur(_lname(newi,contextptr)));
       if (!l.empty() && l.front()==cst_pi)
 	l.erase(l.begin());
       if (l.empty())
@@ -1416,13 +1416,21 @@ namespace giac {
     }
     // take re and im since coeffs are reals
     // FIXME: should have a better algo for rational coeffs
-    mat=mergevecteur(*re(mat,contextptr)._VECTptr,*im(mat,contextptr)._VECTptr);
+    gen remat=re(mat,contextptr),immat=im(mat,contextptr);
+    if (remat.type!=_VECT || immat.type!=_VECT){ // (interrupted: an error value)
+      wrt.push_back(g);
+      res.push_back(plus_one);
+      return res;
+    }
+    mat=mergevecteur(*remat._VECTptr,*immat._VECTptr);
     // find solutions in kernel of mat
     matrice noyau=mker(mat,contextptr);
     // try each row of noyau that has a non-zero last coeff
     // since the first row coeff is -1 all coeff must be rationals
     int ns=int(noyau.size());
     for (int i=0;i<ns;++i){
+      if (noyau[i].type!=_VECT || noyau[i]._VECTptr->empty()) // (interrupted)
+	continue;
       vecteur & w=*noyau[i]._VECTptr;
       if (is_zero(w.back()))
 	continue;
@@ -1603,7 +1611,7 @@ namespace giac {
       control_c();
 #endif
       if (ctrl_c || interrupted) 
-	return gensizeerr(contextptr);
+	return gen_oom(); // gensizeerr(contextptr);
       if (is_undef(gg))
 	gg=0;
 #else
@@ -1622,7 +1630,7 @@ namespace giac {
     control_c();
 #endif
     if (ctrl_c || interrupted) 
-      return gensizeerr(contextptr);
+      return gen_oom(); // gensizeerr(contextptr);
     gen res,gg,a=a_orig;
     int k;
     if (is_algebraic_extension(a)){
@@ -1985,8 +1993,13 @@ namespace giac {
       // Initialization
       vecteur vars(alg_lvar(argln)); 
       // FIXME alg_lvar for alg ext but requires decompose to work!
-      for (int i=0;i<s;++i)
+      for (int i=0;i<s;++i){
 	argln[i]=e2r(argln[i],vars,contextptr);
+	// alg_lvar can miss a variable (ln(rootof(...)) when the same rootof is also an argument: alg_lvar substitutes it inside
+	// the ln too), then e2r gives undef, and undef in primeargs makes decompose recurse and expanded_ln loop without end
+	if (is_undef(argln[i]))
+	  return e;
+      }
       // extensions must be treated separately
       gen num,den;
       vecteur primeargs,extargs;
@@ -2009,20 +2022,20 @@ namespace giac {
 	control_c();
 #endif
 	if (ctrl_c || interrupted) 
-	  return gensizeerr(contextptr);
+	  return gen_oom(); // gensizeerr(contextptr);
 	fxnd(argln[i],num,den);	
 	newln[i]=expanded_ln(num,primeargs,extargs,lnprimeargs,lnextargs,vars,contextptr)-expanded_ln(den,primeargs,extargs,lnprimeargs,lnextargs,vars,contextptr);
 #ifdef TIMEOUT
 	control_c();
 #endif
 	if (ctrl_c || interrupted) 
-	  return gensizeerr(contextptr);
+	  return gen_oom(); // gensizeerr(contextptr);
 	gen gg=evalf_double(re(branch_evalf(rdiv(l[i]-newln[i],cst_two_pi*cst_i,contextptr),contextptr),contextptr),0,contextptr); 
 #ifdef TIMEOUT
 	control_c();
 #endif
 	if (ctrl_c || interrupted) 
-	  return gensizeerr(contextptr);
+	  return gen_oom(); // gensizeerr(contextptr);
 	if (gg.type==_DOUBLE_)
 	  newln[i]=newln[i]+cst_two_pi*cst_i*gen(int(std::floor(gg._DOUBLE_val+0.5)));
       }
@@ -2043,7 +2056,10 @@ namespace giac {
     vecteur vars(1,cst_pi);
     lvar(newl,vars);
     vecteur ln_vars(lop(newl,at_ln));
-    vecteur independant(*e2r(ln_vars,vars,contextptr)._VECTptr);
+    gen ei=e2r(ln_vars,vars,contextptr);
+    if (ei.type!=_VECT) // (interrupted)
+      return e;
+    vecteur independant(*ei._VECTptr);
     int n_ln=int(independant.size());
     independant.push_back(e2r(cst_i*cst_pi,vars,contextptr));
     matrice m;
@@ -2526,7 +2542,10 @@ namespace giac {
     vecteur bases,bases2;
     if (vabs2.size()>1){
 #ifdef NO_STDEXCEPT
-      vecteur vabs2tmp=*tsimplify_common(vabs2,contextptr)._VECTptr;
+      gen vt=tsimplify_common(vabs2,contextptr);
+      if (vt.type!=_VECT) // (interrupted: an error value, not a list)
+        return e_orig;
+      vecteur vabs2tmp=*vt._VECTptr;
       if (is_undef(vabs2tmp)){
 	*logptr(contextptr) << vabs2tmp << '\n';
 	return e_orig;

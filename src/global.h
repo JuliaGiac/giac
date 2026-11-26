@@ -33,7 +33,9 @@
 #include <sys/times.h>
 #else
 #if defined VISUALC || defined BESTA_OS || defined FREERTOS
+#ifndef __GNUC__
 typedef long pid_t;
+#endif
 #else // VISUALC
 #if !defined(__MINGW_H) && !defined(HP39) && !defined(NSPIRE) && !defined(FXCG) && !defined(__ANDROID__) && !defined(NSPIRE_NEWLIB) && !defined(OSX) && !defined(IOS) && !defined(OSXIOS) && !defined(FIR_LINUX) && !defined(PRIMEWEBASM)
 #include "wince_replacements.h"
@@ -433,7 +435,9 @@ Boolean isLegalUTF8Sequence(const UTF8 *source, const UTF8 *sourceEnd);
   double time(int );
 #endif
   extern time_t caseval_begin,caseval_current;
+  extern double caseval_begin_ms; // EMCC: start of the current caseval in ms, for sub-second timeouts
   extern double caseval_maxtime;
+  extern double caseval_steps,caseval_stepmark,caseval_maxsteps; // # of control_c calls since the start; step budget (0: off)
   extern int caseval_n,caseval_mod,caseval_unitialized;
 #endif
   extern double powlog2float;
@@ -495,6 +499,20 @@ throw(std::runtime_error("Stopped by user interruption.")); \
     dbgprint_vector(const T * b,const T * e) : std::vector<T>::vector(b,e) { };
     dbgprint_vector(size_t i) : std::vector<T>::vector(i) { };
     dbgprint_vector(size_t i,const T & t) : std::vector<T>::vector(i,t) { };
+#ifdef USTL
+    // uSTL assigns element by element into the old elements: in v=*v.front()._VECTptr (a giac
+    // idiom) the source belongs to an element of v and is freed half-way. Copy, then swap.
+    dbgprint_vector(const dbgprint_vector<T> & w) = default;
+    dbgprint_vector(dbgprint_vector<T> && w) = default;
+    dbgprint_vector & operator =(const dbgprint_vector<T> & w){
+      if (this!=&w){
+        std::vector<T> tmp(w);
+        this->swap(tmp);
+      }
+      return *this;
+    }
+    dbgprint_vector & operator =(dbgprint_vector<T> && w){ this->swap(w); return *this; }
+#endif
     // ~dbgprint_vector() { };
     // inherited destructors
     void dbgprint() const { COUT << *this << '\n'; }

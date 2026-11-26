@@ -2548,6 +2548,54 @@ namespace giac {
     */
   }
 
+  // trunc has no series rule and is not in sign_floor_ceil_round_tab, so the limit took
+  // trunc at the point: limit(trunc(x),x,-1,1) = trunc(-1) = -1 (right 0, trunc(x) = 0 on (-1,0)). trunc(u) equals
+  // floor(u) where u >= 0 and ceil(u) where u < 0, so each trunc(u) (trunc(u,n): trunc(10^n*u)/10^n) whose u holds x is
+  // rewritten by the limit L of u from the same side: L > 0 floor(u), L < 0 ceil(u) (u keeps the sign of L near the
+  // point), L = 0 the value 0 (|u| < 1 near the point). An infinite L keeps trunc (trunc(+infinity) is +infinity), a
+  // failed limit of u is the answer, and an L of undecided sign sets undecided: the limit then stays unevaluated, as
+  // limit(e,x=a[,side]), the form texprintaslimit draws with its point and side (limit(e,x,a,side) printed a bare lim).
+  extern const unary_function_ptr * const at_trunc;
+  extern const unary_function_ptr * const at_iPart;
+  static gen limit_trunc(const gen & e,const identificateur & x,const gen & lim_point,int direction,bool & undecided,GIAC_CONTEXT){
+    vecteur v(lop(e,at_trunc)),from,to;
+    for (int i=0;i<int(v.size());++i){
+      bool inner=false; // a trunc inside another one is rewritten by the limit of the outer one's argument
+      for (int j=0;j<int(v.size()) && !inner;++j)
+        inner = j!=i && equalposcomp(lop(v[j]._SYMBptr->feuille,at_trunc),v[i]);
+      if (inner)
+        continue;
+      gen u=v[i]._SYMBptr->feuille,d=1;
+      if (u.type==_VECT){
+        if (u._VECTptr->size()!=2 || u._VECTptr->back().type!=_INT_)
+          continue;
+        d=pow(gen(10),u._VECTptr->back(),contextptr);
+        u=u._VECTptr->front()*d;
+      }
+      if (!contains(u,gen(x)))
+        continue;
+      gen L=in_limit(u,x,lim_point,direction,contextptr);
+      if (is_undef(L))
+        return L;
+      if (is_inf(L))
+        continue;
+      gen r;
+      if (is_zero(L,contextptr) || is_zero(recursive_normal(L,contextptr),contextptr))
+        r=0;
+      else if (is_strictly_positive(L,contextptr))
+        r=symbolic(at_floor,u)/d;
+      else if (is_strictly_positive(-L,contextptr))
+        r=symbolic(at_ceil,u)/d;
+      else {
+        undecided=true;
+        return e;
+      }
+      from.push_back(v[i]);
+      to.push_back(r);
+    }
+    return from.empty()?e:subst(e,from,to,false,contextptr);
+  }
+
   static gen in_limit(const gen & e0,const identificateur & x,const gen & lim_point,int direction,GIAC_CONTEXT){
     if (direction==-2)
       return gensizeerr(contextptr);
@@ -2590,6 +2638,36 @@ namespace giac {
       direction=1;
     if (lim_point==minus_inf)
       direction=-1;    
+    // iPart(u) is trunc(u) as a float (ti89.cc _iPart: floor of a proven u >= 0, -floor(-u) of
+    // a proven u < 0), but it has no series rule and is not in sign_floor_ceil_round_tab, so the limit took it as
+    // continuous: limit(iPart(x),x,1,-1) = 1.0 (right 0, iPart(x) = 0 on [0,1)). Each iPart(u) of one argument is read
+    // as trunc(u), whose sides limit_trunc takes below; the limit is then trunc's, an exact integer.
+    for (int k=0;k<64 && has_op(e,*at_iPart);++k){
+      vecteur v(lop(e,at_iPart)),from,to;
+      for (int i=0;i<int(v.size());++i){
+        if (v[i]._SYMBptr->feuille.type==_VECT)
+          continue;
+        from.push_back(v[i]);
+        to.push_back(symbolic(at_trunc,v[i]._SYMBptr->feuille));
+      }
+      if (from.empty())
+        break;
+      e=subst(e,from,to,false,contextptr);
+    }
+    // trunc(u) as floor(u) or ceil(u) by the side of u near the point (limit_trunc)
+    // again while a trunc is left, the ones inside another that the pass before skipped
+    // (limit(trunc(trunc(x)+x),x,1,-1) took floor(trunc(x)+x) at the point, 1, right 0); a pass that changes nothing ends it
+    for (int k=0;k<64 && has_op(e,*at_trunc);++k){
+      bool undecided=false;
+      gen before=e;
+      e=limit_trunc(e,x,lim_point,direction,undecided,contextptr);
+      if (is_undef(e))
+        return e;
+      if (undecided)
+        return direction?symbolic(at_limit,makesequence(e0,symb_equal(x,lim_point),direction)):symbolic(at_limit,makesequence(e0,symb_equal(x,lim_point)));
+      if (e==before)
+        break;
+    }
     vecteur vsign(loptab(e,sign_floor_ceil_round_tab));
     // First try substitution
     if (has_i(lop(e,at_ln))){
@@ -2718,6 +2796,29 @@ namespace giac {
     for (int i=0;i<rv.size();++i){
       if (evalf(rv[i],1,contextptr).type<_CPLX)
 	cv.push_back(rv[i]);
+    }
+    // tsimplify below writes a constant cosh(1) as (exp(1)^2+1)/(2*exp(1)), while the series of
+    // cosh(1+x) starts with cosh(1), which normal does not see equal to it: the leading term of cosh(1+x)-cosh(1) was
+    // not 0 and limit((cosh(1+x)-cosh(1))/x,x,0) gave infinity. With a numeric constant beside a sinh, cosh or tanh that
+    // depends on x, all of them are written as exponentials first, as for an infinite argument (limit_symbolic_preprocess).
+    if (!cv.empty()){
+      vecteur vx=rlvarx(e_copy,x);
+      bool hyp=false;
+      for (int i=0;i<vx.size();++i){
+	if (vx[i].is_symb_of_sommet(at_sinh) || vx[i].is_symb_of_sommet(at_cosh) || vx[i].is_symb_of_sommet(at_tanh)){
+	  hyp=true;
+	  break;
+	}
+      }
+      if (hyp){
+	e_copy=hyp2exp(e_copy,contextptr);
+	rv=rlvar(e_copy,false);
+	cv.clear();
+	for (int i=0;i<rv.size();++i){
+	  if (evalf(rv[i],1,contextptr).type<_CPLX)
+	    cv.push_back(rv[i]);
+	}
+      }
     }
     if (!cv.empty()){
       gen cvg=tsimplify(cv,contextptr);

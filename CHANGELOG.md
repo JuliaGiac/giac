@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Based on upstream giac 2.1.0** (Bernard Parisse, published 2026-11-24),
+  instead of 2.0.0: `main` holds the upstream tree (tags `upstream/2.0.0`,
+  `upstream/2.1.0`) and was merged into `dev`. The Meson project version is
+  now 2.1.0, so `version()` reports `giac 2.1.0`. Files `dev` does not carry
+  (autotools build, platform packaging scripts, the Xcas GUI sources,
+  `micropython-1.12/`, provided as a submodule) stay removed.
+  `check/geo.out` takes 2.1.0's simpler results in this fork's output
+  conventions (English names, display attributes and `a/(b*c)` printing of
+  this build).
+
 ### Added
 - Web site at <https://juliagiac.github.io/giac/> (Hugo, in `site/`),
   presenting the upstream Giac/Xcas project by Bernard Parisse and Renée De

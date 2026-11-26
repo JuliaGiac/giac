@@ -1981,7 +1981,7 @@ id="matr_case' + i + '_' + j + '">' + oldval + '</textarea><div class="matrixcel
     //cmentree.focus();
   },
   qrcodegen: 0,
-  qrsize:354,
+  qrsize:177,
   qrtype:0,
   dolink:1,
   makeqr: function(texte){

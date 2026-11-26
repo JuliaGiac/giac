@@ -58,7 +58,7 @@ extern "C" int xcas_python_eval;
 #include <sys/param.h>
 #endif
 
-#if !defined BESTA_OS && !defined NSPIRE && !defined FXCG && !defined KHICAS // test should always return true
+#if !defined BESTA_OS && !defined FREERTOS && !defined NSPIRE && !defined FXCG && !defined KHICAS // test should always return true
 #include <dirent.h>
 #endif
 
@@ -81,7 +81,7 @@ namespace giac {
   };
 
   const static_help_t static_help[]={
-#if defined NSPIRE_NEWLIB || (defined NUMWORKS && !defined NUMWORKS_SLOTB ) || ( !defined(KHICAS) && !defined POCKETCAS)
+#if defined NSPIRE_NEWLIB || (defined NUMWORKS && !defined NUMWORKS_SLOTB ) || ( !defined(KHICAS) && !defined POCKETCAS) || defined HPG1 || defined HPG2
 #include "static_help.h"
 #else
     { "", { "", "", "", "",""}, "", "", "" },

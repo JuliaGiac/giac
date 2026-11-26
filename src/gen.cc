@@ -5,8 +5,8 @@
 #if defined DEVICE && !defined NUMWORKS_SLOTAB && !defined NUMWORKS_SLOTB && !defined NSPIRE_NEWLIB 
 size_t stackptr=0x20036000;
 #else
-#if defined x86_64
-size_t stackptr=0xffffffffffffffff;
+#if 1 // defined x86_64
+size_t stackptr=~0ULL; // 0xffffffffffffffff;
 #else
 size_t stackptr=0xffffffff;
 #endif
@@ -377,7 +377,7 @@ namespace giac {
   }
 #else
   void delete_ref_vecteur(ref_vecteur * ptr){
-    ptr->v.clear();
+    ptr->~ref_vecteur(); // ptr->v.clear();
     deletefast(ptr);
   }
 #endif
@@ -576,6 +576,8 @@ namespace giac {
 #endif
 #if defined NSPIRE || defined FXCG
     wait_1ms(1);
+#elif defined HPG1 || defined HPG2
+    // Printf("\fundeferr\n"); loopsleep(1000);
 #else
 #ifdef GIAC_HAS_STO_38
     usleep(10);
@@ -920,7 +922,7 @@ namespace giac {
 #if defined HAVE_GMPXX_H && !defined USE_GMP_REPLACEMENTS
   gen::gen(const mpz_class & m){
     int l=mpz_sizeinbase(m.get_mpz_t(),2);
-    if (l<32){
+    if (l<INT_MAXSHIFT){
       type = _INT_;
       val = mpz_get_si(m.get_mpz_t());
     }
@@ -1243,7 +1245,7 @@ namespace giac {
   gen::gen(ref_mpz_t * mptr){
     int l=mpz_sizeinbase(mptr->z,2);
     // if (l<17){
-    if (l<32){
+    if (l<INT_MAXSHIFT){
       type = _INT_;
       val = mpz_get_si(mptr->z);
       // COUT << "Destruction by mpz_t * " << *mptr << '\n';
@@ -1284,7 +1286,7 @@ namespace giac {
     }
     int l=mpz_sizeinbase(mptr->z,2);
     // if (l<17){
-    if (l<32){
+    if (l<INT_MAXSHIFT){
       g.type=_INT_;
       g.subtype=0;
       g.val = mpz_get_si(mptr->z);
@@ -1314,7 +1316,7 @@ namespace giac {
 
   gen::gen(const my_mpz& z){
     int l=mpz_sizeinbase(z.ptr,2);
-    if (l<32){
+    if (l<INT_MAXSHIFT){
       type = _INT_;
       val = mpz_get_si(z.ptr);
     }
@@ -2320,9 +2322,10 @@ namespace giac {
       control_c();
 #endif
     if (ctrl_c || interrupted || !stack_check(contextptr)) { 
+      if (ctrl_c) *logptr(contextptr) << "Stopped in in_eval" << '\n';
       interrupted = true; ctrl_c=false;
-      *logptr(contextptr) << "Stopped in in_eval" << '\n';
-      gensizeerr(gettext("Stopped by user interruption or stack overflow."),evaled);
+      evaled=gen_oom();
+      //gensizeerr(gettext("Stopped by user interruption or stack overflow."),evaled);
       return true;
     }    
     if (!level)
@@ -2551,7 +2554,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom(); // gensizeerr(gettext("Stopped by user interruption.")); 
     }
     if (level==0)
       return *this;
@@ -2876,7 +2879,15 @@ namespace giac {
   gen gen::evalf_double(int level,const context * contextptr) const{
     if (type==_DOUBLE_)
       return *this;
-    if (type==_INT_ && subtype==_INT_BOOLEAN)
+    if (type==_INT_
+#ifndef TICE
+        // on tice (and probably some other calcs), we do not have multiprecision therefore we convert int to double without trying
+        // note that evalf_double is called by the graph axis drawing code
+        // modifications should be done there otherwise axis drawing can be
+        // cancelled (annul key on ti83)
+        && subtype==_INT_BOOLEAN
+#endif
+        )
       return double(val);
     gen g;
     if (has_evalf(*this,g,level,contextptr)){
@@ -3583,11 +3594,15 @@ namespace giac {
 	if (!is_integer(expo) && is_positive(-e,contextptr)){
 	  r=pow(-e,expo,contextptr)*cos(cst_pi*expo,contextptr);
 	  i=pow(-e,expo,contextptr)*sin(cst_pi*expo,contextptr);
+          return;
 	}
-	else {
-	  r=s;
-	  i=0;
-	}
+        if (!is_integer(expo) && !atan_tan_no_floor(contextptr) && sign(e,contextptr)!=1){
+	  r=symbolic(at_re,s);
+	  i=symbolic(at_im,s);
+	  return;
+ 	}        
+        r=s;
+        i=0;
 	return;
       }
       if (is_zero(im(expo,contextptr),contextptr)){
@@ -4135,7 +4150,7 @@ namespace giac {
       else {
 #ifdef HAVE_LIBMPFR
 	tmp=accurate_evalf(s,ABS_NBITS_EVALF+10)*pow(2,ABS_NBITS_EVALF,contextptr);
-	if (!is_greater(1,abs(tmp,contextptr),contextptr)){
+	if (tmp.type<_IDNT && !is_greater(1,abs(tmp,contextptr),contextptr)){
 	  if (is_positive(tmp,contextptr))
 	    return s;
 	  return -s;
@@ -4335,6 +4350,19 @@ namespace giac {
 #endif
   }
 
+#ifdef HAVE_LIBMPFR
+  // an MPFR value (no interval) that is not 0 but that is_zero takes as 0 (|x| <= epsilon)
+  static bool arg_part_tiny(const gen & g,GIAC_CONTEXT){
+    if (g.type!=_REAL || g._REALptr->is_zero() || !is_zero(g,contextptr))
+      return false;
+#ifndef NO_RTTI
+    if (dynamic_cast<real_interval *>(g._REALptr))
+      return false;
+#endif
+    return mpfr_regular_p(g._REALptr->inf);
+  }
+#endif
+
   gen arg_CPLX(const gen & a,GIAC_CONTEXT){
     gen realpart=normal(a.re(contextptr),contextptr),
       imagpart=normal(a.im(contextptr),contextptr);
@@ -4346,6 +4374,24 @@ namespace giac {
       return atan2f(realpart._FLOAT_val,imagpart._FLOAT_val,angle_radian(contextptr));
 #endif
     }
+#ifdef HAVE_LIBMPFR
+    // is_zero of an MPFR part compares its double with epsilon (1e-12), so a complex MPFR
+    // value with both parts below 1e-12 had arg undef (ln and every power of it too: surd(10^-299/cos(acosh(-1/2)),3)
+    // at Digits 60 was undef, as the argument's evalf carries an imaginary part of 1e-360, and a caller fell back to the
+    // double: 1.3437024079419E-100-2.94E-115*i), and one below 1e-12 beside a negative real part was taken as 0
+    // (arg(-1-10^-20*i) = +pi). A part that is MPFR and nonzero but within epsilon of 0, the other MPFR or exactly 0:
+    // the arg is MPFR's atan2 at the parts' precision (an exact 0 as +0).
+    if (arg_part_tiny(realpart,contextptr) || arg_part_tiny(imagpart,contextptr)){
+      if ((realpart.type==_REAL || is_exactly_zero(realpart)) && (imagpart.type==_REAL || is_exactly_zero(imagpart))){
+        unsigned int prec=0;
+        if (realpart.type==_REAL) prec=mpfr_get_prec(realpart._REALptr->inf);
+        if (imagpart.type==_REAL && mpfr_get_prec(imagpart._REALptr->inf)>prec) prec=mpfr_get_prec(imagpart._REALptr->inf);
+        real_object R(is_exactly_zero(realpart)?gen(0):realpart,prec),I(is_exactly_zero(imagpart)?gen(0):imagpart,prec),res(R);
+        mpfr_atan2(res.inf,I.inf,R.inf,MPFR_RNDN);
+        return res;
+      }
+    }
+#endif
     if (is_zero_or_contains(realpart,contextptr)){
       if (is_zero_or_contains(imagpart,contextptr))
 	return undef;
@@ -4381,8 +4427,10 @@ namespace giac {
     }
     if (!angle_radian(contextptr)){
       //grad
+      // evaluate a in the caller's angle mode before switching to radians
+      const gen af=evalf(a,1,contextptr);
       int mode = get_mode_set_radian(contextptr); //get current mode
-      gen res=evalf(arg(a,contextptr),1,contextptr);
+      gen res=evalf(arg(af,contextptr),1,contextptr);
       angle_mode(mode,contextptr); //set back to either degree or grads
       if(mode == 1) //if was in degrees
         return 180*res/cst_pi;
@@ -4712,7 +4760,7 @@ namespace giac {
       if (a.type==_ZINT && a.ref_count()==1){
 	mpz_t * ptr=a._ZINTptr;
 	mpz_add(*ptr,*ptr,*b._ZINTptr);
-	if (mpz_sizeinbase(*ptr,2)<32){
+	if (mpz_sizeinbase(*ptr,2)<INT_MAXSHIFT){
 	  return a=mpz_get_si(*ptr);
 	}
 	return a;
@@ -4729,7 +4777,7 @@ namespace giac {
 	mpz_sub_ui(*ptr,*ptr,-b.val);
       else
 	mpz_add_ui(*ptr,*ptr,b.val);
-      if (mpz_sizeinbase(*ptr,2)<32){
+      if (mpz_sizeinbase(*ptr,2)<INT_MAXSHIFT){
 	return a=gen(*ptr);
       }
       return a;
@@ -4740,7 +4788,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return a=gensizeerr(gettext("Stopped by user interruption.")); 
+      return a=gen_oom(); // gensizeerr(gettext("Stopped by user interruption.")); 
     }
     return a=operator_plus(a,b,contextptr);
   }
@@ -4760,7 +4808,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     register ref_mpz_t * e;
     switch ( t ) {
@@ -5051,13 +5099,13 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     bool adeuxpoints=a.is_symb_of_sommet(at_deuxpoints);
     if ( (a.is_symb_of_sommet(at_interval) || adeuxpoints)&& a._SYMBptr->feuille.type==_VECT && a._SYMBptr->feuille._VECTptr->size()==2)
       return symbolic(a._SYMBptr->sommet,makesequence(a._SYMBptr->feuille._VECTptr->front()+b,a._SYMBptr->feuille._VECTptr->back()+b)); // removed +(adeuxpoints?minus_one:zero) otherwise slicing like v[1:4] does not work
     if (a.is_symb_of_sommet(at_unit)){
-      if (is_zero(b))
+      if (is_exactly_zero(b))
 	return a;
       if (equalposcomp(lidnt(b),cst_pi)!=0)
 	return sym_add(a,evalf(b,1,contextptr),contextptr);
@@ -5079,7 +5127,7 @@ namespace giac {
       }
     }
     if (b.is_symb_of_sommet(at_unit)){
-      if (is_zero(a))
+      if (is_exactly_zero(a))
 	return b;
       if (equalposcomp(lidnt(a),cst_pi)!=0)
 	return sym_add(evalf(a,1,contextptr),b,contextptr);
@@ -5518,7 +5566,7 @@ namespace giac {
       if (a.type==_ZINT && a.ref_count()==1){
 	mpz_t * ptr=a._ZINTptr;
 	mpz_sub(*ptr,*ptr,*b._ZINTptr);
-	if (mpz_sizeinbase(*ptr,2)<32){
+	if (mpz_sizeinbase(*ptr,2)<INT_MAXSHIFT){
 	  return a=mpz_get_si(*ptr);
 	}
 	return a;
@@ -5535,7 +5583,7 @@ namespace giac {
 	mpz_sub_ui(*ptr,*ptr,b.val);
       else
 	mpz_add_ui(*ptr,*ptr,-b.val);
-      if (mpz_sizeinbase(*ptr,2)<32){
+      if (mpz_sizeinbase(*ptr,2)<INT_MAXSHIFT){
 	return a=mpz_get_si(*ptr);
       }
       return a;
@@ -5546,7 +5594,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return a=gensizeerr(gettext("Stopped by user interruption.")); 
+      return a=gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }      
     return a=operator_minus(a,b,contextptr);
   }
@@ -5558,7 +5606,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }      
     register ref_mpz_t * e;
     switch ( t) {
@@ -5725,7 +5773,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }    
     if (a.is_symb_of_sommet(at_unit) || b.is_symb_of_sommet(at_unit))
       return a+(-b);
@@ -6307,7 +6355,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     register ref_mpz_t * e;
     switch (t) {
@@ -6830,6 +6878,200 @@ namespace giac {
     return res;
   }
 
+  // (a^b)^c is a^(b*c) only when im(b*ln(a)) lies in (-pi,pi] or c is an integer; the
+  // rule took any base with no literal i, so sqrt(acosh(-1/2)^3) gave acosh(-1/2)*sqrt(acosh(-1/2)), the other root.
+  // 1: the rule as before (an integer c, a real a >= 0 or an even b with a real a (the abs form), or a, b or c with no
+  // numeric value: Giac's real-variable convention); 2: a^(b*c) holds for a complex a (no abs); 0: another branch, the
+  // power stays as it is (its evalf is the principal value). Decided on the doubles, with a margin at the cut.
+  static int pow_of_pow_branch(const gen & a,const gen & b,const gen & c,GIAC_CONTEXT){
+    if (c.type==_INT_ || is_integer(c))
+      return 1;
+    gen cv=evalf_double(c,1,contextptr);
+    if (cv.type!=_DOUBLE_ || cv._DOUBLE_val==std::floor(cv._DOUBLE_val))
+      return 1;
+    gen av=evalf_double(a,1,contextptr),bv=evalf_double(b,1,contextptr);
+    if (bv.type!=_DOUBLE_)
+      return 1;
+    double re,im;
+    if (av.type==_DOUBLE_){
+      re=av._DOUBLE_val; im=0;
+    }
+    else if (av.type==_CPLX && av._CPLXptr->type==_DOUBLE_ && (av._CPLXptr+1)->type==_DOUBLE_){
+      re=av._CPLXptr->_DOUBLE_val; im=(av._CPLXptr+1)->_DOUBLE_val;
+    }
+    else
+      return 1;
+    double bd=bv._DOUBLE_val;
+    if (im==0 && (re>=0 || (bd==std::floor(bd) && std::fmod(bd,2.0)==0)))
+      return 1;
+    double t=bd*std::atan2(im,re); // im(b*ln(a))
+    if (!(std::abs(t)<M_PI*(1-1e-9)))
+      return 0;
+    return im==0?1:2;
+  }
+
+  // (e^a)^b is e^(a*b) only when b is an integer or im(a) lies in (-pi,pi]; the rule took
+  // any a, so sqrt(exp(4*i)) gave exp(2*i), the other root. The principal value is e^(b*(a-2*k*pi*i)), k the integer that
+  // brings im(a)-2*k*pi into (-pi,pi], for any b. 1: the rule as before (an integer b, im(a) inside (-pi,pi) on its double
+  // with a margin of 1e-9*pi, or an a with no numeric value: Giac's convention, a free x is real); 2: k is set; 0: k is
+  // not decided (im(a) at the cut, (2*m+1)*pi, and not proved there, or a large im(a) that no precision clears of it, or
+  // whose double is not finite), the power stays as it is (its evalf is the principal value). On the cut e^a is a
+  // negative real and its principal power takes arg = +pi. Past |im(a)| = 2^21*pi the double has too few digits for k:
+  // im(a)/(2*pi)+1/2 is floored at Digits plus its own digits plus 20, 40, ... 1280, and k taken when
+  // two levels in a row agree, each clear of an integer by more than 10^10 units of its last digit.
+  static bool pow_of_exp_bigk(const gen & a,double t,gen & k,GIAC_CONTEXT){
+    int nd0=decimal_digits(contextptr)+int(std::floor(std::log10(std::abs(t))))+1;
+    int save_decimal_digits=decimal_digits(contextptr);
+    gen prev,x=im(a,contextptr)/cst_two_pi+plus_one_half;
+    bool have_prev=false;
+    for (int extra=20;extra<=1280;extra*=2){
+      int nd=nd0+extra;
+      set_decimal_digits(nd,contextptr);
+      gen q;
+      try {
+	q=evalf(x,1,contextptr);
+      } catch (...) {
+	set_decimal_digits(save_decimal_digits,contextptr);
+	throw;
+      }
+      set_decimal_digits(save_decimal_digits,contextptr);
+      if (q.type!=_REAL && q.type!=_DOUBLE_)
+	return false;
+      gen m=_floor(q,contextptr);
+      if (m.type!=_INT_ && m.type!=_ZINT)
+	return false;
+      gen f=q-m;
+      gen dist=is_greater(plus_one_half,f,contextptr)?f:1-f;
+      if (!is_strictly_greater(dist*pow(gen(10),nd-10,contextptr),abs(q,contextptr),contextptr)){
+	have_prev=false;
+	continue;
+      }
+      if (have_prev && m==prev){
+	k=m;
+	return true;
+      }
+      prev=m;
+      have_prev=true;
+    }
+    return false;
+  }
+
+  static int pow_of_exp_branch(const gen & a,const gen & b,gen & k,GIAC_CONTEXT){
+    if (b.type==_INT_ || is_integer(b))
+      return 1;
+    gen iv=evalf_double(im(evalf(a,1,contextptr),contextptr),1,contextptr);
+    if (iv.type!=_DOUBLE_)
+      return 1;
+    double t=iv._DOUBLE_val;
+    if (std::abs(t)<M_PI*(1-1e-9))
+      return 1;
+    t/=2*M_PI;
+    if (!(std::abs(t)<1048576))
+      return std::abs(t)<1e300 && pow_of_exp_bigk(a,t,k,contextptr)?2:0;
+    double m=std::floor(t),h=t-m-0.5;
+    if (std::abs(h)>1e-9){
+      k=int(m)+(h>0?1:0);
+      return 2;
+    }
+    if (is_exactly_zero(recursive_normal(im(a,contextptr)-(2*int(m)+1)*cst_pi,contextptr))){
+      k=int(m);
+      return 2;
+    }
+    return 0;
+  }
+
+  // b^(n*s/d) (n an integer, d an integer denominator) is ((b^s)^(1/d))^r*(b^s)^q
+  // with n = q*d+r only when (b^s)^(1/d) is b^(s/d), that is when im(s*ln(b)) lies in (-pi,pi] (for a negative b in
+  // complex mode Giac takes (-b)^s and exp(i*pi*s/d), so im(s*ln(-b))); the rule took any b and s, so 2^sqrt(-1-10^-3),
+  // Giac's 2^(10*i*sqrt(10010)/1000), became (2^(10*i*sqrt(10010)))^(1/1000), the principal root of 2^(1000.5*i):
+  // another branch. s = 1 always keeps the rule, whatever b is: arg b lies in (-pi,pi], and an integer power of the
+  // principal root is the principal power (the margin would refuse sqrt(acosh(-1/2)^2) and (-pi)^(3/2) = sqrt(-pi)*(-pi)).
+  // Otherwise decided on the doubles with a margin at the cut; b or s with no numeric value keep the rule.
+  // a b whose double is not finite (10^400) takes ln(b) from Giac's evalf, which is finite ((10^400)^(i/1000) kept
+  // the rule and took the root of (10^400)^i); an s whose double is not finite is decided only for a positive real b
+  // and a real s; what cannot be decided keeps the power as typed. A negative real b with a real s has
+  // im(s*ln(b)) = s*pi exactly: the rule holds for -1 < s < 1 there.
+  // 0: no numeric value, 1: finite parts, 2: a numeric value with a part that is not finite
+  static int pow_double_parts(const gen & g,double & re,double & im){
+    if (g.type==_DOUBLE_){
+      re=g._DOUBLE_val; im=0;
+      return std::isfinite(re)?1:2;
+    }
+    if (g.type==_CPLX && g._CPLXptr->type==_DOUBLE_ && (g._CPLXptr+1)->type==_DOUBLE_){
+      re=g._CPLXptr->_DOUBLE_val; im=(g._CPLXptr+1)->_DOUBLE_val;
+      return std::isfinite(re) && std::isfinite(im)?1:2;
+    }
+    return 0;
+  }
+
+  static bool pow_root_extract_holds(const gen & b,const gen & s,GIAC_CONTEXT){
+    if (is_one(s))
+      return true;
+    double bre=0,bim=0,sre=0,sim=0,lre=0,lim=0; // b, s, ln(b)
+    int bk=pow_double_parts(evalf_double(b,1,contextptr),bre,bim),sk=pow_double_parts(evalf_double(s,1,contextptr),sre,sim);
+    if (!bk || !sk)
+      return true;
+    bool negreal=false;
+    if (bk==1){
+      if (bre==0 && bim==0)
+        return true;
+      // A negative real b: its double can carry a rounding imaginary part (evalf of (-pi)^3 at Digits > 14), so a b near
+      // the negative axis is tested exactly (Giac's is_real, im(b) = 0).
+      negreal=bre<0 && (bim==0 || (std::abs(bim)<=1e-9*std::abs(bre) && b.is_real(contextptr)));
+      lre=std::log(std::hypot(bre,bim));
+      lim=negreal?M_PI:std::atan2(bim,bre);
+    }
+    else {
+      // The double of a huge b is infinite; Giac's evalf of ln(b) is finite
+      if (pow_double_parts(evalf_double(evalf(ln(b,contextptr),1,contextptr),1,contextptr),lre,lim)!=1)
+        return false;
+      if (b.is_real(contextptr)){
+        negreal=std::abs(lim)>M_PI/2;
+        lim=negreal?M_PI:0;
+      }
+    }
+    if (sk==2) // an s whose double is not finite
+      return !negreal && lim==0 && s.is_real(contextptr);
+    // s too is tested exactly when its double is near the real axis.
+    if (negreal && (sim==0 || (std::abs(sim)<=1e-9*std::abs(sre) && s.is_real(contextptr))))
+      return sre>-1+1e-9 && sre<1-1e-9; // im(s*ln(b)) = s*pi
+    double t=sim*lre+sre*lim; // im(s*ln(b))
+    return std::abs(t)<M_PI*(1-1e-9);
+  }
+
+  // 2*e when the float e (a double or an MPFR) is k+1/2 for an integer k, |2*e| < 2^20 (odd);
+  // 0 otherwise.
+  static int pow_half_odd(const gen & e){
+    if (e.type==_DOUBLE_){
+      double t=2*e._DOUBLE_val;
+      if (t!=std::floor(t) || std::abs(t)>=1048576) return 0;
+      int n=int(t);
+      return n%2?n:0;
+    }
+#ifdef HAVE_LIBMPFR
+    if (e.type==_REAL){
+      mpfr_t t;
+      mpfr_init2(t,mpfr_get_prec(e._REALptr->inf)+1);
+      mpfr_mul_2ui(t,e._REALptr->inf,1,MPFR_RNDN); // exact
+      int n=0;
+      if (mpfr_integer_p(t) && mpfr_cmpabs_ui(t,1048576)<0){
+        long m=mpfr_get_si(t,MPFR_RNDN);
+        if (m%2) n=int(m);
+      }
+      mpfr_clear(t);
+      return n;
+    }
+#endif
+    return 0;
+  }
+  // A real float (a double or an MPFR) below 0.
+  static bool pow_negative_float(const gen & b){
+    if (b.type==_DOUBLE_) return b._DOUBLE_val<0;
+#ifdef HAVE_LIBMPFR
+    if (b.type==_REAL) return mpfr_sgn(b._REALptr->inf)<0;
+#endif
+    return false;
+  }
   gen pow(const gen & base,const gen & exponent,GIAC_CONTEXT){
     if (base.type==_VECT && exponent.type==_VECT && (base.subtype==_SET__VECT || exponent.subtype==_SET__VECT)){
       return _symmetric_difference(makesequence(base,exponent),contextptr);
@@ -6840,7 +7082,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     if (exponent.type==_INT_){
       if (exponent.val==1) return base;
@@ -6909,6 +7151,18 @@ namespace giac {
       }
       return pow(base,new_ref_symbolic(symbolic(at_prod,makesequence(exponent._FRACptr->num,symb_inv(exponent._FRACptr->den)))),contextptr);
     }
+    // a negative real float b to a float power k+1/2 (the evalf of sqrt(-pi), which stays
+    // pow(-pi,1/2) until evalf makes 1/2 a float) went to exp(e*ln(b)) below, whose real part is |b|^e*cos(pi*e) with pi
+    // rounded: evalf(sqrt(-pi)) was 4.1e-41+1.7724...*i at Digits 40 (9.6e-15 at Digits 12), where the value is purely
+    // imaginary, and the sign of that noise chose the side of a cut downstream: cosh(3*sqrt(-pi)) had an imaginary part
+    // -1.4e-40, so acosh of it (a real in (-1,1), acosh = i*acos) took -0.9658*i (right +0.9658*i). b^(n/2), n = 2*e odd,
+    // is sqrt(b)^n, and sqrt of a negative float is i*sqrt(-b) with an exact zero real part.
+    if (pow_negative_float(base) && (escape_real(contextptr) || complex_mode(contextptr))){
+      int n=pow_half_odd(exponent);
+      if (n==1) return sqrt(base,contextptr);
+      if (n==-1) return inv(sqrt(base,contextptr),contextptr);
+      if (n) return pow(sqrt(base,contextptr),n);
+    }
     if (is_inf(base)){ 
       if (is_zero(exponent,contextptr))
 	return undef;
@@ -6955,7 +7209,7 @@ namespace giac {
 	if (w.size()==1) v1=w.front(); else v1=symbolic(at_prod,gen(w,_SEQ__VECT));
 	return new_ref_symbolic(symbolic(at_unit,makenewvecteur(pow(v[0],exponent,contextptr),v1)));
       }
-      if (u==at_abs && exponent.type==_INT_ && !complex_mode(contextptr) && !has_i(base)){ 
+      if (u==at_abs && exponent.type==_INT_ && !complex_mode(contextptr) && !has_i(base) && is_real(base._SYMBptr->feuille,contextptr)){ 
 	int n=exponent.val,m;
 	if (n<0 && n%2)
 	  m=n-1;
@@ -6977,24 +7231,27 @@ namespace giac {
 	else
 	  return 1;
       }
-      if (u==at_exp){
+      gen expk; // was u==at_exp, for any a
+      int expb=u==at_exp?pow_of_exp_branch(base._SYMBptr->feuille,exponent,expk,contextptr):0;
+      if (expb){
 	// (e^a)^b=e^(a*b)
 	// but we keep (e^a)^b if b is integer and e^(a*b) is not simplified
 	// for rational dependance
         // or inside integration
-	gen res=exp(base._SYMBptr->feuille*exponent,contextptr);
+	gen res=exp((expb==2 && !is_exactly_zero(expk)?base._SYMBptr->feuille-2*expk*cst_pi*cst_i:base._SYMBptr->feuille)*exponent,contextptr);
 	if (exponent.type!=_INT_ || !res.is_symb_of_sommet(at_exp))
 	  return res;
       }
       if (u==at_inv && base._SYMBptr->feuille.type==_SYMB && (base._SYMBptr->feuille._SYMBptr->sommet==at_exp ||base._SYMBptr->feuille._SYMBptr->sommet==at_pow)) 
 	return inv(pow(base._SYMBptr->feuille,exponent,contextptr),contextptr);
-      if (u==at_pow && !has_i(base)){
+      int powpow=(u==at_pow && !has_i(base))?pow_of_pow_branch(base._SYMBptr->feuille[0],base._SYMBptr->feuille[1],exponent,contextptr):0;
+      if (powpow){ // was u==at_pow && !has_i(base)
 	vecteur & v=*base._SYMBptr->feuille._VECTptr;
 	gen & v1=v[1];
 	gen new_exp=v1*exponent;
 	if (new_exp.type>_IDNT)
 	  new_exp=normal(new_exp,contextptr);
-	if ( v1.type==_INT_ && v1.val%2==0 
+	if ( powpow==1 && v1.type==_INT_ && v1.val%2==0 
 	     && ((new_exp.type!=_INT_ && !is_assumed_integer(new_exp,contextptr)) || new_exp.val%2 )
 	     && !complex_mode(contextptr) ) 
 	  return pow(abs(v[0],contextptr),new_exp,contextptr); 
@@ -7019,7 +7276,15 @@ namespace giac {
     case _INT___INT_: case _ZINT__INT_: case _REAL__INT_: case _CPLX__INT_: case _IDNT__INT_: 
       return pow(base,exponent.val);
     case _DOUBLE___DOUBLE_:
-      if (exponent._DOUBLE_val==int(std::floor(exponent._DOUBLE_val+.25)))
+      // int() of an exponent past the int range is undefined; the wasm build saturates it to
+      // INT_MIN or INT_MAX and took the integer branch, so 3.0^(-1e10) called pow(base,INT_MIN), which recursed until
+      // the stack overflowed (normal and has_evalf reach it too). An integer exponent there
+      // takes the double power (C's pow keeps the sign of a negative base by the parity); a fraction goes on as before.
+      if (std::fabs(exponent._DOUBLE_val)>=2147483647.0){
+	if (exponent._DOUBLE_val==std::floor(exponent._DOUBLE_val))
+	  return std::pow(base._DOUBLE_val,exponent._DOUBLE_val);
+      }
+      else if (exponent._DOUBLE_val==int(std::floor(exponent._DOUBLE_val+.25)))
 	return pow(base,int(std::floor(exponent._DOUBLE_val+.25)));
       if (base._DOUBLE_val>=0)
 #ifdef _SOFTMATH_H
@@ -7185,8 +7450,11 @@ namespace giac {
 	int q=superexponent.val / subexponent_deno.val;
 	int r=superexponent.val % subexponent_deno.val;
 	gen res(1);
+	bool negbase=r && complex_mode(contextptr) && fastsign(base,contextptr)==-1;
+	if (r && !pow_root_extract_holds(negbase?-base:base,subexponent_num,contextptr))
+	  return new_ref_symbolic(symbolic(at_pow,gen(makenewvecteur(base,exponent),_SEQ__VECT)));
 	if (r){
-	  if (complex_mode(contextptr) && fastsign(base,contextptr)==-1){ // is_strictly_positive(-base,contextptr)){
+	  if (negbase){ // was complex_mode(contextptr) && fastsign(base,contextptr)==-1; is_strictly_positive(-base,contextptr)){
 	    gen base1=-base;
 	    res=exp((cst_i*cst_pi*subexponent_num)/subexponent_deno,contextptr);
 	    res=new_ref_symbolic(symbolic(at_pow,gen(makenewvecteur(pow(base1,subexponent_num,contextptr),inv(subexponent_deno,contextptr)),_SEQ__VECT)))*res;
@@ -7231,7 +7499,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     if (is_undef(a))
       return a;
@@ -7624,7 +7892,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     if ( (a.type==_DOUBLE_ || a.type==_FLOAT_ )? a==0 : is_exactly_zero(a))
       return unsigned_inf;
@@ -7765,7 +8033,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     ref_mpz_t * e;
     gen res;
@@ -7806,7 +8074,7 @@ namespace giac {
       inpow(base,exponent,res);
       return(res);
     case _IDNT:
-      if (is_undef(base))
+      if (is_undef(base)) // FIXME? || is_inf(base))
 	return base;
       if (!exponent)
 	return 1;
@@ -7822,7 +8090,8 @@ namespace giac {
 	res= (*((base._SYMBptr->feuille)._VECTptr))[1];
 	return pow( (base._SYMBptr->feuille)._VECTptr->front(),gen((longlong) (exponent)) * res,context0) ;
       }
-      if ((exponent % 2==0) && base._SYMBptr->sommet==at_abs)
+      // the same rule for an integer exponent, also only for a real b
+      if ((exponent % 2==0) && base._SYMBptr->sommet==at_abs && is_real(base._SYMBptr->feuille,context0))
 	return new_ref_symbolic(symbolic(at_pow,gen(makenewvecteur(base._SYMBptr->feuille,(longlong) exponent),_SEQ__VECT)));
       return new_ref_symbolic(symbolic(at_pow,gen(makenewvecteur(base,(longlong) exponent),_SEQ__VECT)));
     case _POLY:
@@ -7853,7 +8122,9 @@ namespace giac {
       return plus_inf;
     }
     if (exponent<0){
-      if (-exponent<0)
+      // -INT_MIN overflows (undefined), so the test -exponent<0 was dropped by the
+      // compiler and pow(base,INT_MIN) called itself until the stack overflowed
+      if (exponent==-2147483647-1)
 	return gensizeerr("pow: int exponent underflow");
       return inv(pow(base,-exponent),context0);
     }
@@ -8064,7 +8335,7 @@ namespace giac {
 #endif
     if (ctrl_c || interrupted) { 
       interrupted = true; ctrl_c=false;
-      return gensizeerr(gettext("Stopped by user interruption.")); 
+      return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
     }
     if (b.type==_MOD || a.type==_MOD)
       return a*inv(b,contextptr);
@@ -8211,7 +8482,7 @@ namespace giac {
 #endif
       if (ctrl_c || interrupted) { 
 	interrupted = true; ctrl_c=false;
-	return gensizeerr(gettext("Stopped by user interruption.")); 
+	return gen_oom();//gensizeerr(gettext("Stopped by user interruption.")); 
       }
       if (is_undef(a))
 	return a;
@@ -9374,7 +9645,9 @@ namespace giac {
     case _ZINT: 
       return mpz_cmp_si(*a._ZINTptr,1)==0;
     case _CPLX:
-      return is_one(*a._CPLXptr) && is_zero(*(a._CPLXptr+1));
+      // an exact zero imaginary part, as the _DOUBLE_ and _REAL branches below test exactly: is_zero compares a float with
+      // epsilon (1e-12), so 1+1e-15*i was one and pow returned the base for any exponent, operator_times the other factor
+      return is_one(*a._CPLXptr) && is_exactly_zero(*(a._CPLXptr+1));
     case _DOUBLE_:
       return a._DOUBLE_val==1;
     case _FLOAT_:
@@ -11281,11 +11554,11 @@ namespace giac {
       if (!d.type)
 	d.uncoerce();
       my_mpz_gcdext(*d._ZINTptr,*u._ZINTptr,*v._ZINTptr,*a._ZINTptr,*b._ZINTptr);
-      if (mpz_sizeinbase(*u._ZINTptr,2)<32)
+      if (mpz_sizeinbase(*u._ZINTptr,2)<INT_MAXSHIFT)
 	u=mpz_get_si(*u._ZINTptr);
-      if (mpz_sizeinbase(*v._ZINTptr,2)<32)
+      if (mpz_sizeinbase(*v._ZINTptr,2)<INT_MAXSHIFT)
 	v=mpz_get_si(*v._ZINTptr);
-      if (mpz_sizeinbase(*d._ZINTptr,2)<32)
+      if (mpz_sizeinbase(*d._ZINTptr,2)<INT_MAXSHIFT)
 	d=mpz_get_si(*d._ZINTptr);
       break;
     default: 
@@ -11721,7 +11994,7 @@ namespace giac {
       a.uncoerce();
     if (m.type==_INT_)
       m.uncoerce();
-    if ( (a.type!=_ZINT) || (m.type!=_ZINT) )
+    if ( (a.type!=_ZINT) || (m.type!=_ZINT) || is_positive(-m,context0) )
       return false;
     bool ok=in_fracmod(m,a,d,d1,absd1,u,u1,ur,q,r,sqrtm,tmp,num,den);
     if (num.type==_ZINT && mpz_sizeinbase(*num._ZINTptr,2)<=30)
@@ -11767,7 +12040,7 @@ namespace giac {
       return a_orig;
     gen res;
     if (!fracmod(a_orig,modulo,res))
-      return gensizeerr(gettext("Reconstructed denominator is not prime with modulo"));
+      return gensizeerr(gettext("modulo is not integer or negative or reconstructed denominator is not prime with modulo"));
     return res;
   }
 
@@ -11974,7 +12247,7 @@ namespace giac {
       control_c();
 #endif
       if (ctrl_c || interrupted)
-	return gensizeerr(gettext("Interrupted"));
+	return gen_oom();//gensizeerr(gettext("Interrupted"));
       if (is_probab_prime_p(res))
 	return(res);
     }
@@ -11995,7 +12268,7 @@ namespace giac {
       control_c();
 #endif
       if (ctrl_c || interrupted)
-	return gensizeerr(gettext("Interrupted"));
+	return gen_oom();//gensizeerr(gettext("Interrupted"));
       if (is_probab_prime_p(res))
 	return(res);
     }
@@ -12697,10 +12970,10 @@ namespace giac {
     my_ostream newptr(&warnstream);
     logptr(&newptr,contextptr);
 #else
-#if !defined HAVE_SSTREAM || defined NSPIRE 
+#if !defined GIAC_SILENT && (!defined HAVE_SSTREAM || defined NSPIRE)
     logptr(&COUT,contextptr);
 #else
-#ifndef KHICAS
+#if !defined KHICAS && !defined GIAC_SILENT
     logptr(&warnstream,contextptr);
 #endif
 #endif // HAVE_SSTREAM
@@ -12721,10 +12994,10 @@ namespace giac {
 #endif
       type=_STRNG;
     }
-#if !defined NSPIRE && !defined SDL_KHICAS
+#if !defined NSPIRE && !defined SDL_KHICAS && !defined GIAC_SILENT
     logptr(oldptr,contextptr);
 #endif
-#if !defined HAVE_SSTREAM || defined NSPIRE
+#if !defined HAVE_SSTREAM || defined NSPIRE || defined GIAC_SILENT
 #else
     if (!warnstream.str().empty())
       parser_error(warnstream.str(),contextptr);
@@ -13420,10 +13693,10 @@ void sprint_double(char * s,double d){
     //COUT << window_xmin << " " << window_xmax << " " << window_ymin << " " << window_ymax << '\n';
     //g=_symetrie(makesequence(_droite(makesequence(0,1),contextptr),g),contextptr);
     //S='"'+svg_preamble(7,7,gnuplot_xmin,gnuplot_xmax,gnuplot_ymin,gnuplot_ymax,ortho,false,default_color(contextptr))+gen2svg(g,contextptr)+svg_grid(gnuplot_xmin,gnuplot_xmax,gnuplot_ymin,gnuplot_ymax,default_color(contextptr))+"</svg>\"";
-    S='"'+svg_preamble_pixel(g,gwidth,gwidth*gratio,window_xmin,window_xmax,window_ymin,window_ymax,ortho,false,default_color(contextptr));
+    S = '"'+svg_preamble_pixel(g,gwidth,gwidth*gratio,window_xmin,window_xmax,window_ymin,window_ymax,ortho,false,default_color(contextptr));
     plot_attr P;
     title_legende(g,P);
-    S= S+(gen2svg(g,window_xmin,window_xmax,window_ymin,window_ymax,ratio/gratio,contextptr,false)+(axes?svg_grid(window_xmin,window_xmax,window_ymin,window_ymax,P,default_color(contextptr))+"</svg>\"":""));
+    S = S+(gen2svg(g,window_xmin,window_xmax,window_ymin,window_ymax,ratio/gratio,contextptr,false)+(axes?svg_grid(window_xmin,window_xmax,window_ymin,window_ymax,P,default_color(contextptr))+"</svg>\"":""));
 #endif
     return S.c_str();
   }
@@ -14795,7 +15068,7 @@ void sprint_double(char * s,double d){
  }
 #endif
 #ifndef NSPIRE
-  ostream & operator << (ostream & os,const gen & a) { return os << a.print(context0); }
+  ostream & operator << (ostream & os,const gen & a) { return &os ? os << a.print(context0):os; }
 #endif
 
   string monome::print(GIAC_CONTEXT) const {
@@ -16706,6 +16979,9 @@ void sprint_double(char * s,double d){
 
   bool real_object::is_zero() const{
 #ifdef HAVE_LIBMPFR
+    // a NaN is no zero: mpfr_sgn(NaN) is 0, so is_zero, is_exactly_zero and is_one (a-1 is a NaN too) held for it, and
+    // an MPFR NaN times a complex number returned the complex number (operator_times, is_one(a)?b:...)
+    if (mpfr_nan_p(inf)) return false;
     return !mpfr_sgn(inf);
 #else
     return mpf_sgn(inf)==0;
@@ -16856,6 +17132,7 @@ void sprint_double(char * s,double d){
   }
       
   const char * caseval(const char *s){
+    vx_var=x__IDNT_e; // fix for hpg2 (perhaps a static init fiasco)
     //printf("%s\n",s);
     ctrl_c=interrupted=false;
     static string * sptr=0;
@@ -17010,11 +17287,32 @@ void sprint_double(char * s,double d){
 	  return S.c_str();
 	}
       }
+      if (args.substr(0,9)=="ckbudget "){
+	string t=args.substr(9,args.size()-9);
+	double f=atof(t.c_str());
+	if (f>=0 && f<1e15){
+	  char b[32];
+	  caseval_maxsteps=double((long long)f);
+	  snprintf(b,sizeof b,"%.0f",caseval_maxsteps);
+	  S=string("Step budget ")+b;
+	  return S.c_str();
+	}
+      }    
+    }
+    if (!strcmp(s,"ckcount")){
+      char b[32];
+      snprintf(b,sizeof b,"%.0f",caseval_steps);
+      S=b;
+      return S.c_str();
     }
     ctrl_c=false;
     interrupted=false;
-    caseval_begin=time(0);    
-#endif
+    caseval_begin=time(0);
+    caseval_steps=caseval_stepmark=0;
+#if defined(EMCC) || defined(EMCC2)
+    caseval_begin_ms=emscripten_get_now();
+#endif    
+#endif // TIMEOUT
 #ifdef HAVE_LIBPTHREAD
     gen g;
     caseval_param cp={s,0,&C,PTHREAD_MUTEX_INITIALIZER};
@@ -17198,19 +17496,23 @@ void sprint_double(char * s,double d){
 	S=g.print(&C);
 #if !defined GIAC_GGB 
 #if defined EMCC || defined EMCC2
-	double add_evalf=EM_ASM_DOUBLE_V({
-	    if (typeof(UI)!=="undefined" && typeof(UI.add_evalf)!="undefined")
-	      return UI.add_evalf*1.0;
-	    return 1.0;
-	  }),
-	  js_bigint=EM_ASM_DOUBLE_V({
-	      if (typeof(UI)!=="undefined" && typeof(UI.js_bigint)!="undefined")
+      double add_evalf=EM_ASM_DOUBLE_V({
+          if (typeof(UI)!=="undefined" && typeof(UI.add_evalf)!="undefined"){
+            //console.log("gen.cc add_evalf",UI.addevalf);
+            return UI.add_evalf*1.0;
+          }
+          return 1.0;
+        }),
+        js_bigint=EM_ASM_DOUBLE_V({
+            if (typeof(UI)!=="undefined" && typeof(UI.js_bigint)!="undefined")
 	      return UI.js_bigint*1.0;
 	    return 0.0;
 	  });
 #else
-	double add_evalf=false,js_bigint=false;
+      double add_evalf=false,js_bigint=false;
 #endif
+      if (strncmp(s,"quote(",6)==0)
+        add_evalf=false;
       if (g.type==_FRAC || g.type==_ZINT){
 	if (add_evalf){
 	  S += "=";	  
