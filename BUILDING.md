@@ -142,11 +142,11 @@ All feature options accept `auto` (detect), `enabled` (require), or `disabled` (
 On 64-bit little-endian CPUs (x86_64, aarch64), `first.h` defines
 `SMARTPTR64`: a `gen` is 8 bytes, and a double is stored *inside* it, with
 its least significant byte holding the type tag (see the comment at the top
-of `src/gen.h`). With the type on 8 bits (`GIAC_TYPE_ON_8BITS`, the default
-here, see `src/dispatch.h`), doubles keep **45 mantissa bits**, about 13.5
-significant digits, instead of IEEE's 53; the low byte is truncated, not
-rounded. For example `0.1+0.2` is stored as `0.29999999999999716`, and
-`sqrt(2.0)` as `1.4142135623730496`. Exact input (`1/10`, `exact(0.1)`) is
+of `src/gen.h`). With the type on 5 bits (upstream's layout, the default),
+doubles keep **48 mantissa bits**, about 14.4 significant digits, instead of
+IEEE's 53; with `GIAC_TYPE_ON_8BITS` they keep 45. The low bits are
+truncated, not rounded: on 5 bits `0.1+0.2` is stored as
+`0.29999999999999893` and `sqrt(2.0)` as `1.4142135623730923`. Exact input (`1/10`, `exact(0.1)`) is
 not affected, and `evalf(x, n)` with `n >= 16` computes with MPFR.
 
 `-Ddoubleval=true` defines `DOUBLEVAL` in `config.h`, so the double is stored

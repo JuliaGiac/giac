@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `doubleval` Meson option (experimental, off by default): defines `DOUBLEVAL`
-  in `config.h` so `gen` stores full 53-bit doubles instead of the 45 mantissa
-  bits it keeps on 64-bit little-endian CPUs, where the low byte of an inline
-  double holds the type tag. `first.h` no longer defines `SMARTPTR64` when
+  in `config.h` so `gen` stores full 53-bit doubles instead of the 48 mantissa
+  bits it keeps on 64-bit little-endian CPUs, where the low bits of an inline
+  double hold the type tag. `first.h` no longer defines `SMARTPTR64` when
   `DOUBLEVAL` is set: the two layouts cannot be combined (see `src/gen.h`).
   Not usable on x86_64 yet: `icas` crashes in `check/testintegrate`, and
   `check/testcas` prints some complex results in polar form. `BUILDING.md` documents the precision
