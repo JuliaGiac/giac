@@ -133,6 +133,47 @@ All feature options accept `auto` (detect), `enabled` (require), or `disabled` (
 |--------|---------|-------------|
 | `regen_parser` | false | Regenerate flex/bison parser files |
 
+### Floating-point precision (`doubleval`, experimental)
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `doubleval` | `true`/`false` | `false` | Store full 53-bit doubles in `gen` (`DOUBLEVAL`) |
+
+On 64-bit little-endian CPUs (x86_64, aarch64), `first.h` defines
+`SMARTPTR64`: a `gen` is 8 bytes, and a double is stored *inside* it, with
+its least significant byte holding the type tag (see the comment at the top
+of `src/gen.h`). With the type on 8 bits (`GIAC_TYPE_ON_8BITS`, the default
+here, see `src/dispatch.h`), doubles keep **45 mantissa bits**, about 13.5
+significant digits, instead of IEEE's 53; the low byte is truncated, not
+rounded. For example `0.1+0.2` is stored as `0.29999999999999716`, and
+`sqrt(2.0)` as `1.4142135623730496`. Exact input (`1/10`, `exact(0.1)`) is
+not affected, and `evalf(x, n)` with `n >= 16` computes with MPFR.
+
+`-Ddoubleval=true` defines `DOUBLEVAL` in `config.h`, so the double is stored
+next to the type instead of in its low bits (`sizeof(gen)` becomes 16).
+`first.h` then no longer defines `SMARTPTR64`, which the 8-byte layout needs
+and `DOUBLEVAL` cannot share. Every program built against these headers sees
+the same layout.
+
+**Status: not usable on x86_64.** With `-Ddoubleval=true` on Linux x86_64
+(GCC, release build), the `unit` suite passes, but `meson test` fails the
+`cas` and `integrate` check suites:
+
+- `icas` crashes (segmentation fault) in `check/testintegrate` on
+  `integrate(sin(x)/(sin(x)**3+cos(x)**3),x)`, the 15th integral, after
+  printing the 14 before it correctly;
+- in `check/testcas`, some complex results are printed in polar form:
+  `sqrt(5)∡-atan(2)` where `1-2*i` is expected (typed on its own, `1-2*i`
+  prints normally), as if a display setting were read from the wrong bits.
+
+To reproduce:
+
+```bash
+meson setup builddir-doubleval -Ddoubleval=true
+meson compile -C builddir-doubleval
+meson test -C builddir-doubleval
+```
+
 ### Usage Examples
 
 ```bash

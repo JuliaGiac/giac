@@ -37,3 +37,8 @@ option('apple_subsystem',
   value: 'auto',
   description: 'Apple platform flavour: auto/macos = native desktop. Set by the ios-*/maccatalyst-* cross files; host_machine.subsystem() cannot be used, see meson.build',
 )
+option('doubleval',
+  type: 'boolean',
+  value: false,
+  description: 'EXPERIMENTAL: store full 53-bit doubles in gen (DOUBLEVAL, sizeof(gen) 16 instead of 8). Off by default; on 64-bit little-endian CPUs gen otherwise keeps 45 mantissa bits for doubles. Known to crash in integrate on x86_64, see BUILDING.md',
+)

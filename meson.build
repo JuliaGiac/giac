@@ -108,6 +108,12 @@ if host_machine.endian() == 'big'
   cdata.set('DOUBLEVAL', 1)
 endif
 
+# Full-precision doubles (experimental, see BUILDING.md). Set in config.h so
+# that every consumer of the installed headers sees the same gen layout.
+if get_option('doubleval')
+  cdata.set('DOUBLEVAL', 1)
+endif
+
 # GMP/MPFR always available
 cdata.set('HAVE_LIBGMP', 1)
 cdata.set('HAVE_GMP_H', 1)
