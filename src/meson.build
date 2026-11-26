@@ -239,6 +239,13 @@ check_tests = {
 
 icas_exe = meson.current_build_dir() / 'icas'
 
+# Checks whose last printed digit depends on the platform's BLAS/LAPACK
+# (Accelerate on macOS, OpenBLAS elsewhere): their decimal numbers are compared
+# within a relative 1e-10 by tests/numdiff.py, the rest of the text exactly.
+approx_checks = ['proba']
+check_python = find_program('python3', 'python')
+numdiff = meson.project_source_root() / 'tests' / 'numdiff.py'
+
 foreach name, input : check_tests
   # Run icas with test input, filter timing/debug lines, diff against reference.
   # python_compat(0) ensures ^ notation (not **) regardless of user config.
@@ -251,7 +258,8 @@ foreach name, input : check_tests
       'tail -n +2 | ' +
       'grep -v "^// " | grep -v "^Added " | grep -v "^$" ' +
       '> ' + name + '.tst && ' +
-      'diff ' + name + '.tst ' + check_dir / name + '.out',
+      (name in approx_checks ? '"' + check_python.full_path() + '" "' + numdiff + '" ' : 'diff ') +
+      name + '.tst ' + check_dir / name + '.out',
     ],
     workdir: meson.current_build_dir(),
     timeout: name.startswith('int') ? 600 : 120,

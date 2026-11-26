@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Meson build now compiles it and installs `proba.h`, and upstream's `proba`
   check runs in the `check` suite. Before, `cov_matrix`, `pca`, `mlr`,
   `bs_price` and the others stayed unevaluated.
+  Its decimal numbers are compared within a relative 1e-10
+  (`tests/numdiff.py`): on macOS, Accelerate prints two `mlr` residuals with
+  a different 12th digit than OpenBLAS does.
 - The 2.1.0 sync brought back ten `micropython-1.12/ports/unix/` files that
   upstream kept while removing the rest of the directory; they are removed
   again (MicroPython is the `micropython` submodule).
