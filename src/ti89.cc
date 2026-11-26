@@ -1300,6 +1300,46 @@ namespace giac {
     vecteur v(1,g);
     if (g.type==_VECT && g.subtype==_SEQ__VECT)
       v=*g._VECTptr;
+    // an integer shift is exact at any size: n > 0 floor-divides by 2^n, n < 0 multiplies by 2^-n
+    // (Giac's convention, kept), one argument multiplies by 2. The C >> and << below took the count mod 32 (shift(1,-70) = 64),
+    // wrapped into the sign bit (shift(1,-31) = -2147483648) and returned a _ZINT unchanged (shift(2^70,1) = 2^70); a count
+    // that is no int was read as the default (shift(1,2^40) = 2, shift(1,1.5) = 2).
+    if (shift && !v.empty() && (v[0].type==_INT_ || v[0].type==_ZINT)){
+      const gen & a=v[0];
+      int s=a.type==_INT_?(a.val<0?-1:(a.val>0?1:0)):mpz_sgn(*a._ZINTptr);
+      longlong c=-1;
+      if (v.size()>1){
+	if (v[1].type==_ZINT){
+	  if (mpz_sgn(*v[1]._ZINTptr)<0)
+	    return s==0?gen(0):gensizeerr("Exponent overflow");
+	  return s<0?-1:0;
+	}
+	if (v[1].type!=_INT_)
+	  return gensizeerr("shift: the count must be an integer");
+	c=v[1].val;
+      }
+      if (c==0 || s==0)
+	return a;
+      ref_mpz_t * m=new ref_mpz_t;
+      if (a.type==_INT_)
+	mpz_set_si(m->z,a.val);
+      else
+	mpz_set(m->z,*a._ZINTptr);
+      if (c>0)
+	mpz_fdiv_q_2exp(m->z,m->z,(unsigned long)c);
+      else {
+	double bits=double(mpz_sizeinbase(m->z,2))+double(-c);
+	if (bits>MPZ_MAXLOG2 || bits*0.6931471805599453>powlog2float){ // Giac's integer size and pow's limit (2^(10^9))
+	  delete m;
+	  return gensizeerr("Exponent overflow");
+	}
+	mpz_mul_2exp(m->z,m->z,(unsigned long)(-c));
+      }
+      gen res;
+      if (!ref_mpz_t2gen(m,res))
+	delete m;
+      return res;
+    }
     int nbre=-1;
     /* if (shift)
        nbre=1; */
@@ -2745,7 +2785,7 @@ namespace giac {
 #endif
       if (ctrl_c || interrupted) { 
 	interrupted = true; ctrl_c=false;
-	return gensizeerr(gettext("Stopped by user interruption.")); 
+	return gen_oom(); // gensizeerr(gettext("Stopped by user interruption.")); 
       }
       res.push_back(int(d*eps1));
       d=d-int(d*eps1);

@@ -24,14 +24,14 @@ Added 0 synonyms
 // End defining egalomega
 // Warning: egalomega,plus, declared as global variable(s). If symbolic variables are required, declare them as local and run purge
 // End defining factell
-// Time 0.01
+// Time 0
 // Time 0
 // Time 0
 // Time 0
 Near [0,0], 1/epsilon^2*f([0,0]+epsilon*[1,t])=-3*t roots [0.0]
 Singular points directions: [cell_i, cell_j, singularity, next solution] [[50,50,0.0,0.0666666666667+0.00148146522433*i],[50,50,0.0,-0.0666666666667+0.0014814977397*i]]
 Bad branch, questionnable accuracy
-// Time 0.08
+// Time 0.12
 // Time 0
 // Time 0
 // Time 0
@@ -50,22 +50,22 @@ eg:eg
 // Time 0
 // Time 0
 // Time 0
-// Time 0.01
 // Time 0
 // Time 0
 // Time 0
 // Time 0
 // Time 0
-// Time 0.01
+// Time 0.03
 // Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
-// Time 0
+// Time 0.02
 // Time 0
 // Time 0
 // Time 0.01
+// Time 0
+// Time 0
+// Time 0
+// Time 0
+// Time 0
 1,1,1
 1,2,20011
 1,3,1
@@ -127,8 +127,8 @@ eg:eg
 3,19,1
 3,20,1
 
-Evaluation time: 0.88
-// Time 0.88
+Evaluation time: 1
+// Time 1
 // Time 0
 // Time 0
 1,1,1
@@ -192,7 +192,7 @@ Evaluation time: 0.88
 3,19,1
 3,20,1
 
-Evaluation time: 2.53
-// Time 2.53
-// Total time 3.53
+Evaluation time: 2.93
+// Time 2.93
+// Total time 4.11
 PASS chk_fhan8 (exit status: 0)

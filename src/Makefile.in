@@ -164,10 +164,10 @@ am_libgiac_la_OBJECTS = input_lexer.lo sym2poly.lo gausspol.lo \
 	vecteur.lo sparse.lo csturm.lo tex.lo global.lo ifactor.lo \
 	alg_ext.lo gauss.lo isom.lo plot.lo plot3d.lo rpn.lo prog.lo \
 	pari.lo cocoa.lo unary.lo usual.lo identificateur.lo gen.lo \
-	tinymt32.lo first.lo TmpLESystemSolver.lo TmpFGLM.lo help.lo \
-	lpsolve.lo optimization.lo signalprocessing.lo graphe.lo \
-	graphtheory.lo nautywrapper.lo markup.lo kdisplay.lo kadd.lo \
-	caseval.lo cutils.lo graphic.lo libbf.lo libregexp.lo \
+	tinymt32.lo first.lo proba.lo TmpLESystemSolver.lo TmpFGLM.lo \
+	help.lo lpsolve.lo optimization.lo signalprocessing.lo \
+	graphe.lo graphtheory.lo nautywrapper.lo markup.lo kdisplay.lo \
+	kadd.lo caseval.lo cutils.lo graphic.lo libbf.lo libregexp.lo \
 	libunicode.lo qjsgiac.lo quickjs.lo quickjs-libc.lo js.lo \
 	qrcodegen.lo
 libgiac_la_OBJECTS = $(am_libgiac_la_OBJECTS)
@@ -249,18 +249,19 @@ am__depfiles_remade = ./$(DEPDIR)/Cfg.Plo ./$(DEPDIR)/Editeur.Plo \
 	./$(DEPDIR)/nautywrapper.Plo ./$(DEPDIR)/optimization.Plo \
 	./$(DEPDIR)/pari.Plo ./$(DEPDIR)/permu.Plo \
 	./$(DEPDIR)/plot.Plo ./$(DEPDIR)/plot3d.Plo \
-	./$(DEPDIR)/prog.Plo ./$(DEPDIR)/qjsgiac.Plo \
-	./$(DEPDIR)/qrcodegen.Plo ./$(DEPDIR)/quater.Plo \
-	./$(DEPDIR)/quickjs-libc.Plo ./$(DEPDIR)/quickjs.Plo \
-	./$(DEPDIR)/risch.Plo ./$(DEPDIR)/rpn.Plo \
-	./$(DEPDIR)/series.Plo ./$(DEPDIR)/signalprocessing.Plo \
-	./$(DEPDIR)/solve.Plo ./$(DEPDIR)/sparse.Plo \
-	./$(DEPDIR)/subst.Plo ./$(DEPDIR)/sym2poly.Plo \
-	./$(DEPDIR)/symbolic.Plo ./$(DEPDIR)/tex.Plo \
-	./$(DEPDIR)/threaded.Plo ./$(DEPDIR)/ti89.Plo \
-	./$(DEPDIR)/tinymt32.Plo ./$(DEPDIR)/unary.Plo \
-	./$(DEPDIR)/usual.Plo ./$(DEPDIR)/vecteur.Plo \
-	./$(DEPDIR)/xcas.Po ./$(DEPDIR)/y_tab.Po
+	./$(DEPDIR)/proba.Plo ./$(DEPDIR)/prog.Plo \
+	./$(DEPDIR)/qjsgiac.Plo ./$(DEPDIR)/qrcodegen.Plo \
+	./$(DEPDIR)/quater.Plo ./$(DEPDIR)/quickjs-libc.Plo \
+	./$(DEPDIR)/quickjs.Plo ./$(DEPDIR)/risch.Plo \
+	./$(DEPDIR)/rpn.Plo ./$(DEPDIR)/series.Plo \
+	./$(DEPDIR)/signalprocessing.Plo ./$(DEPDIR)/solve.Plo \
+	./$(DEPDIR)/sparse.Plo ./$(DEPDIR)/subst.Plo \
+	./$(DEPDIR)/sym2poly.Plo ./$(DEPDIR)/symbolic.Plo \
+	./$(DEPDIR)/tex.Plo ./$(DEPDIR)/threaded.Plo \
+	./$(DEPDIR)/ti89.Plo ./$(DEPDIR)/tinymt32.Plo \
+	./$(DEPDIR)/unary.Plo ./$(DEPDIR)/usual.Plo \
+	./$(DEPDIR)/vecteur.Plo ./$(DEPDIR)/xcas.Po \
+	./$(DEPDIR)/y_tab.Po
 am__mv = mv -f
 CXXCOMPILE = $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
 	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS)
@@ -544,7 +545,7 @@ libgiac_la_SOURCES = input_lexer.ll sym2poly.cc gausspol.cc threaded.cc \
   ezgcd.cc derive.cc solve.cc intg.cc intgab.cc risch.cc lin.cc series.cc \
   subst.cc vecteur.cc sparse.cc csturm.cc tex.cc global.cc \
   ifactor.cc alg_ext.cc gauss.cc isom.cc plot.cc plot3d.cc rpn.cc prog.cc \
-  pari.cc cocoa.cc unary.cc usual.cc identificateur.cc gen.cc tinymt32.cc first.cc \
+  pari.cc cocoa.cc unary.cc usual.cc identificateur.cc gen.cc tinymt32.cc first.cc proba.cc \
   TmpLESystemSolver.C TmpFGLM.C \
   TmpFGLM.H TmpLESystemSolver.H \
   path.h lexer.h \
@@ -558,7 +559,7 @@ libgiac_la_LIBADD = $(NTL_LIBS) $(COCOA_LIBS) $(PARI_LIBS) $(GSL_LIBS)
 giacincludedir = $(includedir)/giac
 giacinclude_HEADERS = dispatch.h fraction.h gen.h desolve.h misc.h ti89.h \
 mathml.h identificateur.h unary.h symbolic.h index.h \
-modpoly.h modfactor.h modint.h permu.h \
+modpoly.h modfactor.h modint.h permu.h proba.h \
 monomial.h poly.h threaded.h gausspol.h sym2poly.h ezgcd.h derive.h \
 solve.h quater.h subst.h usual.h intg.h intgab.h risch.h lin.h series.h \
 vecteur.h sparse.h vector.h csturm.h moyal.h tex.h global.h \
@@ -884,6 +885,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/permu.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/plot.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/plot3d.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/proba.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/prog.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/qjsgiac.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/qrcodegen.Plo@am__quote@ # am--include-marker
@@ -1238,6 +1240,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/permu.Plo
 	-rm -f ./$(DEPDIR)/plot.Plo
 	-rm -f ./$(DEPDIR)/plot3d.Plo
+	-rm -f ./$(DEPDIR)/proba.Plo
 	-rm -f ./$(DEPDIR)/prog.Plo
 	-rm -f ./$(DEPDIR)/qjsgiac.Plo
 	-rm -f ./$(DEPDIR)/qrcodegen.Plo
@@ -1382,6 +1385,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/permu.Plo
 	-rm -f ./$(DEPDIR)/plot.Plo
 	-rm -f ./$(DEPDIR)/plot3d.Plo
+	-rm -f ./$(DEPDIR)/proba.Plo
 	-rm -f ./$(DEPDIR)/prog.Plo
 	-rm -f ./$(DEPDIR)/qjsgiac.Plo
 	-rm -f ./$(DEPDIR)/qrcodegen.Plo

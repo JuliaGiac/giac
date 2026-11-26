@@ -7,6 +7,8 @@
 #ifndef MYOSTREAM_H
 #define MYOSTREAM_H
 
+#ifndef GIAC_SILENT
+
 #include <ostream>
 #include <iostream>
 
@@ -30,6 +32,7 @@ namespace giac {
 
   template <typename T>
   inline my_ostream & operator<<(my_ostream & out, const T & value){
+    //if (&out==0) return out;
     static_cast<std::ostream &>(out) << value;
     return out;
   }
@@ -37,6 +40,7 @@ namespace giac {
   //  overload for double
   template <>
   inline my_ostream & operator<<(my_ostream & out, const double & value){
+    //if (&out==0) return out;
     char buf[50];
     my_sprintf(buf, "%f", value);
     return out << buf;
@@ -45,6 +49,7 @@ namespace giac {
   //  overload for float
   template <>
   inline my_ostream & operator<<(my_ostream & out, const float & value){
+    //if (&out==0) return out;
     char buf[50];
     my_sprintf(buf, "%f", value);
     return out << buf;
@@ -53,6 +58,7 @@ namespace giac {
   //  overload for int
   template <>
   inline my_ostream & operator<<(my_ostream & out, const int & value){
+    //if (&out==0) return out;
     char buf[50];
     my_sprintf(buf, "%d", value);
     return out << buf;
@@ -61,6 +67,7 @@ namespace giac {
   //  overload for unsigned int
   template <>
   inline my_ostream & operator<<(my_ostream & out, const unsigned int & value){
+    //if (&out==0) return out;
     char buf[50];
     my_sprintf(buf, "%u", value);
     return out << buf;
@@ -68,6 +75,7 @@ namespace giac {
 
   //  overload for std::ostream specific io manipulators
   inline my_ostream & operator<<(my_ostream & out, std::ostream & (*func)(std::ostream &)){
+    //if (&out==0) return out;
     static_cast<std::ostream &>(out) << func;
     return out;
   }
@@ -75,5 +83,7 @@ namespace giac {
 #ifndef NO_NAMESPACE_GIAC
 } // namespace giac
 #endif // ndef NO_NAMESPACE_GIAC
+
+#endif // GIAC_SILENT
 
 #endif // MYOSTREAM_H

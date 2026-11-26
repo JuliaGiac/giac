@@ -6,7 +6,7 @@ libgiac_la_SOURCES = input_lexer.ll sym2poly.cc gausspol.cc threaded.cc \
   ezgcd.cc derive.cc solve.cc intg.cc intgab.cc risch.cc lin.cc series.cc \
   subst.cc vecteur.cc sparse.cc csturm.cc tex.cc global.cc \
   ifactor.cc alg_ext.cc gauss.cc isom.cc plot.cc plot3d.cc rpn.cc prog.cc \
-  pari.cc cocoa.cc unary.cc usual.cc identificateur.cc gen.cc tinymt32.cc first.cc \
+  pari.cc cocoa.cc unary.cc usual.cc identificateur.cc gen.cc tinymt32.cc first.cc proba.cc \
   TmpLESystemSolver.C TmpFGLM.C \
   TmpFGLM.H TmpLESystemSolver.H \
   path.h lexer.h \
@@ -21,7 +21,7 @@ libgiac_la_LIBADD = $(NTL_LIBS) $(COCOA_LIBS) $(PARI_LIBS) $(GSL_LIBS)
 giacincludedir = $(includedir)/giac
 giacinclude_HEADERS = dispatch.h fraction.h gen.h desolve.h misc.h ti89.h \
 mathml.h identificateur.h unary.h symbolic.h index.h \
-modpoly.h modfactor.h modint.h permu.h \
+modpoly.h modfactor.h modint.h permu.h proba.h \
 monomial.h poly.h threaded.h gausspol.h sym2poly.h ezgcd.h derive.h \
 solve.h quater.h subst.h usual.h intg.h intgab.h risch.h lin.h series.h \
 vecteur.h sparse.h vector.h csturm.h moyal.h tex.h global.h \

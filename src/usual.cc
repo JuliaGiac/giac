@@ -375,6 +375,18 @@ namespace giac {
     return symbolic(at_ln,e);
   }
 
+  // ln(1/f) = -ln(f) and sqrt(1/f) = 1/sqrt(f) give the conjugate of the principal
+  // value where f is a negative real (ln(1/(1-sqrt(2))) gave 0.881-pi*i, right 0.881+pi*i; sqrt(1/(pi-4)) gave
+  // -1.079*i, right +1.079*i), also for a free name a later value makes negative (subst(ln(1/y),y=-2) gave
+  // -ln(2)-pi*i, right -ln(2)+pi*i). The rewrite runs only where Giac's sign proves f positive (a positive
+  // constant, x^2+1, exp(x), an assumed y>0); elsewhere ln and sqrt keep 1/f and evalf gives the principal value.
+  // The same for ln of a fraction 1/d (inv(-2) is the fraction 1/-2, ln of it was -ln(-2)).
+  static bool inv_of_proven_positive(const gen & f,GIAC_CONTEXT){
+    if (f.type==_VECT)
+      return false;
+    return is_one(sign(f,contextptr));
+  }
+
   gen ln(const gen & e,GIAC_CONTEXT){
     // if (abs_calc_mode(contextptr)==38 && do_lnabs(contextptr) && !complex_mode(contextptr) && (e.type<=_POLY || e.type==_FLOAT_) && !is_positive(e,contextptr)) return gensizeerr(contextptr);
     if (!escape_real(contextptr) && !complex_mode(contextptr) && (e.type<=_POLY || e.type==_FLOAT_) && !is_positive(e,contextptr)) return gensizeerr(contextptr);
@@ -418,7 +430,7 @@ namespace giac {
       else {
 	if (!escape_real(contextptr) && !complex_mode(contextptr))
 	  *logptr(contextptr) << "Taking ln of negative real " << e << '\n';
-	return (-e)._REALptr->log()+cst_pi*cst_i;
+	return (-e)._REALptr->log()+m_pi(mpfr_get_prec(e._REALptr->inf))*cst_i; // pi at e's precision, not a double
       }
     }
     if (e.type==_CPLX){ 
@@ -470,14 +482,14 @@ namespace giac {
     if (is_equal(e))
       return apply_to_equal(e,ln,contextptr);
     if (e.type==_SYMB){
-      if (e._SYMBptr->sommet==at_inv && e._SYMBptr->feuille.type!=_VECT)
+      if (e._SYMBptr->sommet==at_inv && inv_of_proven_positive(e._SYMBptr->feuille,contextptr))
 	return -ln(e._SYMBptr->feuille,contextptr);
       if (e._SYMBptr->sommet==at_exp){ 
 	if (is_real(e._SYMBptr->feuille,contextptr) ) 
 	  return e._SYMBptr->feuille;
       }
     }
-    if (e.type==_FRAC && e._FRACptr->num==1)
+    if (e.type==_FRAC && e._FRACptr->num==1 && inv_of_proven_positive(e._FRACptr->den,contextptr))
       return -ln(e._FRACptr->den,contextptr);
     gen a,b;
     if (is_algebraic_program(e,a,b))
@@ -486,7 +498,9 @@ namespace giac {
       gen a=e._SYMBptr->feuille._VECTptr->front();
       gen b=e._SYMBptr->feuille._VECTptr->back();
       // ln(a^b)
-      if (is_positive(a,contextptr))
+      // ln(a^b) = b*ln(a) only for a real b; for a complex b the imaginary part of
+      // b*ln(a) can leave (-pi,pi]: ln(2^(10*i)) gave 10*i*ln(2), about 6.93*i (right 0.648*i)
+      if (is_positive(a,contextptr) && is_real(b,contextptr))
 	return b*ln(a,contextptr);
     }
     return symb_ln(e);
@@ -594,9 +608,65 @@ namespace giac {
   symbolic symb_atan(const gen & e){
     return symbolic(at_atan,e);
   }
+  // atan and atanh of a small complex MPFR value, defined beside atanh.
+  static bool atan_atanh_small_cplx(const gen & e,bool hyp,gen & res);
   static gen atanasln(const gen & e,GIAC_CONTEXT){
     return plus_one_half*cst_i*ln(rdiv(cst_i+e,cst_i-e,contextptr),contextptr);
   }
+  // n = floor(x/cste+1/2) for the rule atan(tan(a)) = a-n*cste, x = a or re(a) a real
+  // with a numeric value. The rule took n from the double of x/cste+1/2, which has 16 digits: at x = 10^15 its last
+  // digit was off by one (atan(tan(10^15)) = 10^15-318309886183790*pi, 2.11, outside (-pi/2, pi/2); right n ends in 1),
+  // at 10^17 and 30! by more, and next to the pole (x/cste+1/2 = 1-10^-15/pi) the double rounded to 1 (atan(tan(pi/2-
+  // 10^-15)) = pi/2-10^-15-pi, right pi/2-10^-15). Now x/cste+1/2 is evaluated at Digits plus its own digits plus 20,
+  // 40, ... 1280; n is decided when two levels in a row give the same floor, each clear of an integer by more than
+  // 10^10 units of its last digit. Otherwise (a tie, an x whose double is not finite) atan stays unevaluated and evalf
+  // gives the principal value of atan(tan(a)).
+  static bool atan_tan_floor(const gen & x,const gen & cste,double r,gen & n,GIAC_CONTEXT){
+    if (!(r==r) || r-r!=0)
+      return false;
+    int nd0=decimal_digits(contextptr);
+    double ar=absdouble(r);
+    if (ar>=1)
+      nd0+=int(std::floor(std::log10(ar)))+1;
+    int save_decimal_digits=decimal_digits(contextptr);
+    gen prev;
+    bool have_prev=false;
+    for (int extra=20;extra<=1280;extra*=2){
+      int nd=nd0+extra;
+      set_decimal_digits(nd,contextptr);
+      gen q;
+      try {
+	q=evalf(x/cste+plus_one_half,1,contextptr);
+      } catch (...) {
+	set_decimal_digits(save_decimal_digits,contextptr);
+	throw;
+      }
+      set_decimal_digits(save_decimal_digits,contextptr);
+      if (q.type!=_REAL && q.type!=_DOUBLE_)
+	return false;
+      gen m=_floor(q,contextptr);
+      if (m.type!=_INT_ && m.type!=_ZINT)
+	return false;
+      gen aq=abs(q,contextptr);
+      if (is_greater(1,aq,contextptr))
+	aq=1;
+      gen f=q-m;
+      gen dist=is_greater(plus_one_half,f,contextptr)?f:1-f;
+      bool clear=is_strictly_greater(dist*pow(gen(10),nd-10,contextptr),aq,contextptr);
+      if (!clear){
+	have_prev=false;
+	continue;
+      }
+      if (have_prev && m==prev){
+	n=m;
+	return true;
+      }
+      prev=m;
+      have_prev=true;
+    }
+    return false;
+  }
+
   gen atan(const gen & e0,GIAC_CONTEXT){
     if (e0.type==_FLOAT_)
 #ifdef BCD
@@ -631,6 +701,17 @@ namespace giac {
       //grad
       else
         return 200*e._REALptr->atan()/cst_pi;
+    }
+    // a complex MPFR value below 1/4 in size: atanasln's ln((i+z)/(i-z)) cancels
+    // -log10|z| digits (evalf(atan(i/10^1000)) at Digits 40 was 0); atan(z) = -i*atanh(i*z) by the parts.
+    gen small_res;
+    if (atan_atanh_small_cplx(e,false,small_res)){
+      if (angle_radian(contextptr))
+	return small_res;
+      else if(angle_degree(contextptr))
+	return small_res*gen(rad2deg_d);
+      else
+	return small_res*gen(rad2grad_d);
     }
     if ( (e.type==_CPLX) && (e.subtype || e._CPLXptr->type==_REAL || e._CPLXptr->type==_FLOAT_)){
       if (angle_radian(contextptr)) 
@@ -709,6 +790,25 @@ namespace giac {
     if (is_algebraic_program(e,a,b))
       return symbolic(at_program,gen(makevecteur(a,0,atan(b,contextptr)),_SEQ__VECT));
     gen tmp=evalf_double(e,0,contextptr);
+    // an exact argument on the cut (re(e)=0, |im(e)|>1) stayed symbolic, and Giac's rules
+    // read it on the other side of the cut from the principal value (mpmath and C99 catan: atan(2*i) = pi/2+0.549i):
+    // cos(atan(f)) = sqrt(1/(f^2+1)) gave i*sqrt(3)/3 for 2*i and -2*i (right -i*sqrt(3)/3), arg(atan(2*i)) added pi.
+    // The principal value is sign(t)*pi/2+i*atanh(1/t), t=im(e), exact. A real part Giac keeps unsimplified
+    // (pi/2-1/2*pi, re(acos(2))) is read through ratnormal when its double is 0 next to the imaginary part.
+    gen r0=tmp.type==_CPLX?re(e,contextptr):gen(1);
+    if (tmp.type==_CPLX && !is_exactly_zero(r0) && tmp._CPLXptr->type==_DOUBLE_ && (tmp._CPLXptr+1)->type==_DOUBLE_
+	&& fabs(tmp._CPLXptr->_DOUBLE_val)<=1e-12*fabs((tmp._CPLXptr+1)->_DOUBLE_val))
+      r0=ratnormal(r0,contextptr);
+    if (tmp.type==_CPLX && is_exactly_zero(r0)){
+      gen t=im(e,contextptr);
+      if (is_strictly_greater(abs(t,contextptr),1,contextptr)){
+	gen y=cst_i*atanh(inv(t,contextptr),contextptr);
+	if (angle_radian(contextptr))
+	  return sign(t,contextptr)*cst_pi_over_2+y;
+	gen full=angle_degree(contextptr)?gen(180):gen(200);
+	return sign(t,contextptr)*full/2+y*full/cst_pi;
+      }
+    }
     if (tmp.type==_DOUBLE_){
       double ed=tmp._DOUBLE_val;
       // detect if atan is a multiples of pi/10
@@ -722,7 +822,8 @@ namespace giac {
 	  return (ed>0?res/2:-res/2)*(angle_radian(contextptr)?cst_pi/5:(angle_degree(contextptr)?gen(36):gen(40))); //grad
       }
       edh=horner(makevecteur(-3,55,-198,198,-55,3),tmp*tmp);
-      if (absdouble(edh._DOUBLE_val)<1e-7){      
+      if (absdouble(edh._DOUBLE_val)<1e-7  &&
+	  normal(horner(makevecteur(-3,55,-198,198,-55,3),e*e),contextptr)==0){
 	int res=int(std::floor(std::atan(absdouble(ed))*12/M_PI+.5));
 	int den=12;
 	int g=gcd(res,den);
@@ -762,8 +863,22 @@ namespace giac {
           tmp = 200;
       }
       gen tmp2=evalf_double(e._SYMBptr->feuille,0,contextptr);
-      if (tmp2.type<_IDNT)
-	tmp2=_floor(tmp2/tmp+plus_one_half,contextptr);
+      // atan(tan(a)) = a-n*pi with n = floor(a/pi+1/2) is a rule for a real a; _floor of a
+      // complex also floors its imaginary part, so atan(tan(4*i)) gave 4*i-i*pi (right 4*i). tan has the real period pi:
+      // n comes from re(a) alone, and a re(a-n*pi) at the cut +-pi/2 keeps atan unevaluated; a complex symbolic a too.
+      // n is decided at raised Digits (atan_tan_floor), for re(a) as for a real a.
+      if (tmp2.type==_CPLX){
+	gen r=evalf_double(re(tmp2,contextptr)/tmp+plus_one_half,1,contextptr);
+	if (r.type!=_DOUBLE_ || !atan_tan_floor(re(e._SYMBptr->feuille,contextptr),tmp,r._DOUBLE_val,tmp2,contextptr))
+	  return symb_atan(e);
+      }
+      else if (tmp2.type<_IDNT){
+	gen r=evalf_double(tmp2/tmp+plus_one_half,1,contextptr);
+	if (r.type!=_DOUBLE_ || !atan_tan_floor(e._SYMBptr->feuille,tmp,r._DOUBLE_val,tmp2,contextptr))
+	  return symb_atan(e);
+      }
+      else if (!is_real(e._SYMBptr->feuille,contextptr))
+	return symb_atan(e);
       else
 	tmp2=_floor(e._SYMBptr->feuille/tmp+plus_one_half,contextptr);
       if (tmp2.type==_FLOAT_)
@@ -776,16 +891,18 @@ namespace giac {
       gen t=ve.front();
       gen test=(1+t)/(1-t);
       test=ratnormal(e/test,contextptr);
+      // a quarter of a half turn in the context's angle unit, as atan(t) returns it
+      gen quarter=angle_radian(contextptr)?cst_pi/4:(angle_degree(contextptr)?gen(45):gen(50));
       if (is_one(test))
-	return atan(symbolic(at_tan,cst_pi/4+atan(t,contextptr)),contextptr);
+	return atan(symbolic(at_tan,quarter+atan(t,contextptr)),contextptr);
       if (is_minus_one(test))
-	return -atan(symbolic(at_tan,cst_pi/4+atan(t,contextptr)),contextptr);
+	return -atan(symbolic(at_tan,quarter+atan(t,contextptr)),contextptr);
       test=(-1+t)/(1+t);
       test=ratnormal(e/test,contextptr);
       if (is_one(test))
-	return atan(symbolic(at_tan,-cst_pi/4+atan(t,contextptr)),contextptr);
+	return atan(symbolic(at_tan,-quarter+atan(t,contextptr)),contextptr);
       if (is_minus_one(test))
-	return -atan(symbolic(at_tan,-cst_pi/4+atan(t,contextptr)),contextptr);
+	return -atan(symbolic(at_tan,-quarter+atan(t,contextptr)),contextptr);
     }
     return symb_atan(e);
   }
@@ -1227,6 +1344,25 @@ namespace giac {
     return oldres;
   }
 
+  // whether an exact b (the imaginary part of sqrt's argument, a its real part) is 0 though
+  // ratnormal left it as an expression: tried only where the exact form cancels, a < 0 and b tiny beside it (doubles).
+  static bool sqrt_im_proved_zero(const gen & a,const gen & b,GIAC_CONTEXT){
+    // evalf, then its double: evalf_double's bottom-up has_evalf gave no double for a holding ln(...)^2 at Digits 40
+    gen ad=evalf_double(evalf(a,1,contextptr),1,contextptr),bd=evalf_double(evalf(b,1,contextptr),1,contextptr);
+    if (ad.type!=_DOUBLE_ || bd.type!=_DOUBLE_ || !(ad._DOUBLE_val<0))
+      return false;
+    if (!(std::abs(bd._DOUBLE_val)<=1e-10*std::abs(ad._DOUBLE_val)))
+      return false;
+    return is_exactly_zero(recursive_normal(b,contextptr));
+  }
+  // whether sqrt(2*(a+rho))/2*(1+i*b/(a+rho)) cancels: a < 0 and b nonzero but below
+  // 1e-4*|a| (doubles of the evalf), so a+rho = b^2/(rho-a) loses about 2*log10(|a/b|) digits at every Digits.
+  static bool sqrt_neg_real_cancels(const gen & a,const gen & b,GIAC_CONTEXT){
+    gen ad=evalf_double(evalf(a,1,contextptr),1,contextptr),bd=evalf_double(evalf(b,1,contextptr),1,contextptr);
+    if (ad.type!=_DOUBLE_ || bd.type!=_DOUBLE_ || !(ad._DOUBLE_val<0) || bd._DOUBLE_val==0)
+      return false;
+    return std::abs(bd._DOUBLE_val)<=1e-4*std::abs(ad._DOUBLE_val);
+  }
   gen sqrt(const gen & e,GIAC_CONTEXT){
     // if (abs_calc_mode(contextptr)==38 && do_lnabs(contextptr) &&!complex_mode(contextptr) && (e.type<=_POLY || e.type==_FLOAT_) && !is_positive(e,contextptr)) return gensizeerr(contextptr);
     if (!escape_real(contextptr) && !complex_mode(contextptr) && (e.type<=_POLY || e.type==_FLOAT_) && !is_positive(e,contextptr)) return gensizeerr(contextptr);
@@ -1283,11 +1419,37 @@ namespace giac {
 #endif
 #endif
       }
+      // a complex MPFR value. The exact path below took an imaginary part within epsilon
+      // (1e-12) of 0 as 0 (is_zero), at any Digits: sqrt(1-i*10^-20) was 1 (asin(i*10^-20) = i*(t+t^2/2), t = 10^-20),
+      // sqrt(-1-i*10^-20) was +i, the other side of the cut. Only an exact 0 is 0 here; with rho = |e|, a >= 0 takes
+      // t = sqrt((rho+a)/2), sqrt(e) = t+i*b/(2t), a < 0 takes t = sqrt((rho-a)/2), sqrt(e) = |b|/(2t)+sign(b)*i*t
+      // (no cancellation on either side; the sign of b is MPFR's).
+      if (e.type==_CPLX && (e._CPLXptr->type==_REAL || (e._CPLXptr+1)->type==_REAL) && !is_exactly_zero(*(e._CPLXptr+1))){
+        a=*e._CPLXptr; b=*(e._CPLXptr+1);
+        gen rho=abs(e,contextptr);
+        if (is_positive(a,contextptr)){
+          gen t=sqrt((rho+a)/2,contextptr);
+          return t+cst_i*b/(2*t);
+        }
+        gen t=sqrt((rho-a)/2,contextptr);
+        return abs(b,contextptr)/(2*t)+(is_strictly_positive(b,contextptr)?cst_i:-cst_i)*t;
+      }
       // sqrt of an exact complex number
       if (!lop(e,at_exp).empty())
 	return pow(e,plus_one_half,contextptr);
-      a=re(e,contextptr);b=ratnormal(im(e,contextptr),contextptr);
+      // the real part is normalized as the imaginary part is. re() of 1-x*x for
+      // x=sqrt(-2)-10^35 is 1-10^70+sqrt(2)*sqrt(2), so rho and rho-a below held sqrt(2) as an algebraic number and
+      // normalize_sqrt chose the sign of a nested root at Digits (10^70 against 2): sqrt(1-x*x) took the other root at
+      // Digits 40, and asin(sqrt(-2)-10^35) was its conjugate, -pi/2-81.28*i (right -pi/2+81.28*i).
+      a=ratnormal(re(e,contextptr),contextptr);b=ratnormal(im(e,contextptr),contextptr);
       if (a!=e && is_zero(b,contextptr))
+	return sqrt(a,contextptr);
+      // an imaginary part that is exactly 0 but not after ratnormal (im(z^2+1) for
+      // z=acosh(10^-6) holds ln((10^-6)^2+(...)^2), whose argument is exactly 1) with a negative real part: the form
+      // below divides b by a+rho, where both are 0, so its evalf was 0 or noise and sqrt(acosh(10^-6)^2+1) showed
+      // 8.4E-8-4.3E-7*i (right 1.21136202627*i); asinh(acosh(10^-6)) took the ln of x alone (-0.4516+1.5708*i).
+      // When the double of b is within 1e-10 of 0 relative to a < 0, a b that recursive_normal proves 0 gives sqrt(a).
+      if (a!=e && b.type==_SYMB && sqrt_im_proved_zero(a,b,contextptr))
 	return sqrt(a,contextptr);
       if ( has_i(a) || has_i(b) )
 	return pow(e,plus_one_half,contextptr);
@@ -1308,6 +1470,17 @@ namespace giac {
       if (rho.type>=_IDNT)
 	rho=evalf(rho,1,contextptr);
 #endif
+      // for a < 0 and a tiny b the form below cancels in a+rho (acosh(1/2+i/10^20) holds
+      // sqrt(z), z = (1/2+i/10^20)^2-1: its evalf at Digits 40 gave ln of the wrong root, -0.49+0.61*i).
+      // There the root is |b|/(2t)+sign(b)*i*t, t = sqrt((rho-a)/2), the form of the MPFR branch
+      // above; b of undecided sign keeps the form below.
+      if (sqrt_neg_real_cancels(a,b,contextptr)){
+        int sb=is_strictly_positive(b,contextptr)?1:(is_strictly_positive(-b,contextptr)?-1:0);
+        if (sb){
+          gen t=normalize_sqrt(sqrt((rho-a)/2,contextptr),contextptr);
+          return (sb>0?b:-b)/(2*t)+(sb>0?cst_i:-cst_i)*t;
+        }
+      }
       gen realpart=normalize_sqrt(sqrt(2*(a+rho),contextptr),contextptr);
       return ratnormal(realpart/2,contextptr)*(1+cst_i*b/(a+rho));
     }
@@ -1378,10 +1551,12 @@ namespace giac {
 	if (vi.is_symb_of_sommet(at_sin)){
 	  gen a,b;
 	  if (is_linear_wrt(e,vi,a,b,contextptr)){
+	    // a quarter of a half turn in the context's angle unit
+	    gen quarter=angle_radian(contextptr)?cst_pi/4:(angle_degree(contextptr)?gen(45):gen(50));
 	    if (a==b)
-	      return sqrt(2*a,contextptr)*abs(cos(vi._SYMBptr->feuille/2-cst_pi/4,contextptr),contextptr);
+	      return sqrt(2*a,contextptr)*abs(cos(vi._SYMBptr->feuille/2-quarter,contextptr),contextptr);
 	    if (a==-b)
-	      return sqrt(-2*a,contextptr)*abs(sin(vi._SYMBptr->feuille/2-cst_pi/4,contextptr),contextptr);
+	      return sqrt(-2*a,contextptr)*abs(sin(vi._SYMBptr->feuille/2-quarter,contextptr),contextptr);
 	  }
 	}
       } // end loop on vars
@@ -1429,6 +1604,48 @@ namespace giac {
   static define_unary_function_eval3_index (158,__sq,(const gen_op_context)_sq,D_at_sq,_sq_s);
 #endif
   define_unary_function_ptr5( at_sq ,alias_at_sq,&__sq,0,true);
+
+  // the half-angle rules of cos, sin and tan (is_half_atrig: e = asin(f)/2, acos(f)/2 or
+  // atan(f)/2) give the root r of a square, and the sign of the root was is_positive(e_), e_ the evalf of e: for a
+  // complex e_ that is false, so the root was always negated (cos(atan(1+i)/2) gave -0.891+0.0986*i, right 0.891-0.0986*i;
+  // also sin, tan, acos(2*i)/2, asin(i/10^10)/2). The evalf of e is taken again at Digits+20 (at Digits 12 the double of
+  // asin(i/10^30)/2 is 0.0, a real); where it is real (no _CPLX) the test on e_ is kept. Where it is complex the sign
+  // is the one for which +-r agrees with cos(e), sin(e) or tan(e) (fn 0, 1, 2) taken on that evalf, r also at Digits+20:
+  // r within 1e-10*|t| of t (or of -t) and the other sign farther than |t|; otherwise (r near 0, digits lost in r, e at
+  // a cut where its evalf takes another side) 0, and the call stays unevaluated, so evalf gives the value of e itself.
+  static int half_atrig_sign(const gen & e,const gen & e_,const gen & r,int fn,GIAC_CONTEXT){
+    int save_decimal_digits=decimal_digits(contextptr);
+    gen ev,t,rv;
+    set_decimal_digits(save_decimal_digits+20,contextptr);
+    try {
+      ev=evalf(e,1,contextptr);
+      if (ev.type==_CPLX){
+	t=fn==0?cos(ev,contextptr):(fn==1?sin(ev,contextptr):tan(ev,contextptr));
+	rv=evalf(r,1,contextptr);
+      }
+    } catch (...) {
+      set_decimal_digits(save_decimal_digits,contextptr);
+      throw;
+    }
+    set_decimal_digits(save_decimal_digits,contextptr);
+    if (ev.type!=_CPLX && e_.type!=_CPLX)
+      return is_positive(e_,contextptr)?1:-1;
+    if ((t.type!=_CPLX && t.type!=_REAL && t.type!=_DOUBLE_) || (rv.type!=_CPLX && rv.type!=_REAL && rv.type!=_DOUBLE_))
+      return 0;
+    gen at=evalf_double(abs(t,contextptr),1,contextptr);
+    gen dp=evalf_double(abs(rv-t,contextptr),1,contextptr);
+    gen dm=evalf_double(abs(rv+t,contextptr),1,contextptr);
+    if (at.type!=_DOUBLE_ || dp.type!=_DOUBLE_ || dm.type!=_DOUBLE_)
+      return 0;
+    double a=at._DOUBLE_val,p=dp._DOUBLE_val,m=dm._DOUBLE_val;
+    if (!(a>0) || a-a!=0 || !(p==p) || !(m==m))
+      return 0;
+    if (p<=1e-10*a && m>a)
+      return 1;
+    if (m<=1e-10*a && p>a)
+      return -1;
+    return 0;
+  }
 
   symbolic symb_cos(const gen & e){
     return symbolic(at_cos,e);
@@ -1647,8 +1864,15 @@ namespace giac {
 	return f;
       if (u==at_asin)
 	return sqrt(1-pow(f,2),contextptr);
-      if (u==at_atan)
-	return sqrt(inv(pow(f,2)+1,contextptr),contextptr);
+      if (u==at_atan){
+	// cos(atan(f)) = 1/sqrt(f^2+1) is the principal value for every f; sqrt(1/w) is the
+	// same but for a negative real w = f^2+1 (f on atan's cut), where it takes the other root: cos(quote(atan(2*i)))
+	// gave sqrt(-1/3) = i*sqrt(3)/3 (right -i*sqrt(3)/3).
+	gen w=pow(f,2)+1;
+	if (is_strictly_positive(-w,contextptr))
+	  return inv(sqrt(w,contextptr),contextptr);
+	return sqrt(inv(w,contextptr),contextptr);
+      }
       int n=is_half_atrig(e,f);
       if (n && has_evalf(e,e_,1,contextptr)){
 	if (n==2)
@@ -1657,7 +1881,8 @@ namespace giac {
 	  f=sqrt((sqrt(1-pow(f,2),contextptr)+1)/2,contextptr);
 	if (n==3)
 	  f=sqrt((inv(sqrt(1+pow(f,2),contextptr),contextptr)+1)/2,contextptr);
-	if (is_positive(e_,contextptr)) return f; else return -f;
+	int s=half_atrig_sign(e,e_,f,0,contextptr);
+	if (s) return s>0?f:-f;
       }
     }
     if (is_equal(e))
@@ -1905,7 +2130,8 @@ namespace giac {
 	  f=sqrt((1-sqrt(1-pow(f,2),contextptr))/2,contextptr);
 	if (n==3)
 	  f=sqrt((1-inv(sqrt(1+pow(f,2),contextptr),contextptr))/2,contextptr);
-	if (is_positive(e_,contextptr)) return f; else return -f;
+	int s=half_atrig_sign(e,e_,f,1,contextptr);
+	if (s) return s>0?f:-f;
       }
     }
     if (is_equal(e))
@@ -2035,6 +2261,17 @@ namespace giac {
 	    if (a!=0) // avoid recursion
 	      return tan(b,contextptr);
 	}
+	// tan(b+(k+1/2)*pi) = -1/tan(b) = -i*(E+1)/(E-1), E = exp(2*i*b), where tan(b) or E
+	// has a closed form: atan(2*i) is pi/2+i*ln(3)/2 now (E = 1/3), and tan(atan(2*i)) stays 2*i. Where neither has
+	// one (tan(pi/2+1), tan(pi/2+x)), tan stays as it was.
+	if (!is_zero(b) && !is_integer(a) && is_integer(2*a)){
+	  gen tb=tan(b,contextptr);
+	  if (!is_zero(tb) && !has_op(tb,*at_tan))
+	    return -inv(tb,contextptr);
+	  gen E=exp(ratnormal(2*cst_i*b,contextptr),contextptr);
+	  if (!is_one(E) && !has_op(E,*at_exp))
+	    return normal(-cst_i*(E+1)/(E-1),contextptr);
+	}
       }
     }
     if (!approx_mode(contextptr)){ 
@@ -2106,7 +2343,8 @@ namespace giac {
 	if (n==3)
 	  f=inv(sqrt(1+pow(f,2),contextptr),contextptr);
 	f=sqrt((1-f)/(1+f),contextptr);
-	if (is_positive(e_,contextptr)) return f; else return -f;
+	int s=half_atrig_sign(e,e_,f,2,contextptr);
+	if (s) return s>0?f:-f;
       }
     }
     if (is_equal(e))
@@ -2134,9 +2372,163 @@ namespace giac {
   symbolic symb_asin(const gen & e){
     return symbolic(at_asin,e);
   }
-  static gen asinasln(const gen & x,GIAC_CONTEXT){
-    return -cst_i*ln(cst_i*x+sqrt(1-x*x,contextptr),contextptr);
+  // whether the ln forms of asin and asinh cancel at x: i*x+sqrt(1-x^2) (asin) and x+sqrt(x^2+1) (asinh, hyp) add
+  // two terms of about |x| and opposite sign when |x| is large and x has im(x)>0, or is real and negative (asin), re(x)<0,
+  // or is imaginary below 0 (asinh): acos(-10^20+1/2) lost 40 digits. Both functions are odd, also in their ln forms
+  // ((i*x+s)*(-i*x+s)=1 and neither factor is a negative real), so -f(-x) is the same value without the cancellation.
+  // Decided on the double of x, for |x|>1; a symbolic x keeps its form.
+  static bool ln_form_cancels(const gen & x,bool hyp,GIAC_CONTEXT){
+    gen d=evalf_double(x,1,contextptr);
+    double r,i;
+    if (d.type==_DOUBLE_){
+      r=d._DOUBLE_val; i=0;
+    }
+    else if (d.type==_CPLX && d._CPLXptr->type==_DOUBLE_ && (d._CPLXptr+1)->type==_DOUBLE_){
+      r=d._CPLXptr->_DOUBLE_val; i=(d._CPLXptr+1)->_DOUBLE_val;
+    }
+    else
+      return false;
+    if (!(r*r+i*i>1)) // |x|<=1: the sum is at least sqrt(2)-1 in size, nothing to gain
+      return false;
+    // A part whose double reads 0 may be a tiny exact nonzero (x=-10^20-10^-400*i): then its exact sign decides
+    // (is_exactly_zero and the MPFR sign; is_zero reads the double), and a sign Giac cannot decide keeps the stock form.
+    if (hyp){
+      if (r!=0)
+        return r<0;
+      gen rx=re(x,contextptr);
+      if (!is_exactly_zero(rx))
+        return is_strictly_positive(-rx,contextptr);
+      return i<0;
+    }
+    if (i!=0)
+      return i>0;
+    gen ix=im(x,contextptr);
+    if (!is_exactly_zero(ix))
+      return is_strictly_positive(ix,contextptr);
+    return r<0;
+  }
+  // whether x, of size above 1, has a part whose double reads 0 but is not exactly 0 (10^-400-10^20*i): its exact
+  // ln form needs hundreds of digits at evalf, so asinh keeps it unevaluated and evalf takes the float path.
+  static bool part_below_double(const gen & x,GIAC_CONTEXT){
+    gen d=evalf_double(x,1,contextptr);
+    double r,i;
+    if (d.type==_DOUBLE_){
+      r=d._DOUBLE_val; i=0;
+    }
+    else if (d.type==_CPLX && d._CPLXptr->type==_DOUBLE_ && (d._CPLXptr+1)->type==_DOUBLE_){
+      r=d._CPLXptr->_DOUBLE_val; i=(d._CPLXptr+1)->_DOUBLE_val;
+    }
+    else
+      return false;
+    if (!(r*r+i*i>1))
+      return false;
+    return (r==0 && !is_exactly_zero(re(x,contextptr))) || (i==0 && !is_exactly_zero(im(x,contextptr)));
+  }
+  // sqrt(1-x^2) as sqrt(1-x)*sqrt(1+x) for a complex float x (the same principal value): Giac's complex float
+  // product x*x loses a tiny imaginary part (x=-10^20-10^-400*i gave im(1-x*x) = +1e-800, right -2e-380), which put
+  // the root on the other side of its cut.
+  // Giac's complex float sqrt of w=a+b*i with a<0 and a tiny b returns +i*sqrt(-a) whatever the sign of b
+  // (sqrt(-1e20-1e-400*i) = +1e10*i, right -1e10*i); with a<0, sqrt(w) = |b|/(2t)+sign(b)*i*t, t = sqrt((|w|-a)/2),
+  // has no cancellation, and the sign of b is MPFR's.
+  static gen principal_sqrt(const gen & w,GIAC_CONTEXT){
+    if (w.type!=_CPLX)
+      return sqrt(w,contextptr);
+    gen a=re(w,contextptr),b=im(w,contextptr);
+    if (is_exactly_zero(b) || !is_strictly_positive(-a,contextptr))
+      return sqrt(w,contextptr);
+    gen t=sqrt((abs(w,contextptr)-a)/2,contextptr);
+    return abs(b,contextptr)/(2*t)+(is_strictly_positive(b,contextptr)?cst_i:-cst_i)*t;
+  }
+  static gen sqrt_one_minus_square(const gen & x,GIAC_CONTEXT){
+    if (x.type==_CPLX && (x._CPLXptr->type==_REAL || x._CPLXptr->type==_DOUBLE_))
+      return principal_sqrt(1-x,contextptr)*principal_sqrt(1+x,contextptr);
+    return sqrt(1-x*x,contextptr);
+  }
+  // the ln forms of asin and asinh take the ln of 1+O(x), so for a small complex MPFR x
+  // they lose about -log2|x| bits to cancellation, in both parts (asin(1e-20*i) at Digits 30 had 10 right digits and a
+  // real part of 1e-41 where it is 0). The bits lost: minus the binary exponent of the larger part of x when that part
+  // is below 1/4 and both parts are MPFR or exactly 0 (prec gets their precision); 0 otherwise (keep the form).
+  static int small_cplx_lost_bits(const gen & x,int & prec){
+    prec=0;
+    if (x.type!=_CPLX)
+      return 0;
+    bool regular=false;
+    long e=0;
+    for (int k=0;k<2;++k){
+      const gen & p=*(x._CPLXptr+k);
+      if (p.type==_REAL){
+        { int pp=int(mpfr_get_prec(p._REALptr->inf)); if (pp>prec) prec=pp; }
+        if (mpfr_regular_p(p._REALptr->inf)){
+          long pe=mpfr_get_exp(p._REALptr->inf);
+          if (!regular || pe>e) e=pe;
+          regular=true;
+        }
+        else if (!mpfr_zero_p(p._REALptr->inf))
+          return 0; // NaN or infinity
+      }
+      else if (!is_exactly_zero(p))
+        return 0;
+    }
+    if (!regular || prec==0 || e>-2)
+      return 0;
+    return int(-e);
+  }
+  // f's ln form at prec+lost+16 bits, rounded back to prec; x itself when x^2 is below the rounding (asin(x) and
+  // asinh(x) are x*(1+O(x^2)), part by part).
+  static gen small_cplx_ln_form_(gen (*f)(const gen &,GIAC_CONTEXT),const gen & x,GIAC_CONTEXT){
+    int prec=0,lost=small_cplx_lost_bits(x,prec);
+    if (!lost)
+      return f(x,contextptr);
+    if (2*lost>prec+8)
+      return x;
+    return accurate_evalf(f(accurate_evalf(x,prec+lost+16),contextptr),prec);
+  }
+  // asin(i*y) for a real y, and asinh(i*y) for a real y with |y| <= 1, are purely
+  // imaginary, but the ln form leaves its rounding in the real part (CAS evalf(asinh(i/10)) showed
+  // -1.18694596822E-66+0.100167421162*i, evalf(asin(i/3)) -5.1E-61+0.327450150237*i). Where the real part of x is
+  // exactly 0 (an exact 0 or an MPFR zero), the result is i times the imaginary part of the rounded result, its real
+  // part a zero. hyp: asinh, whose value off [-i,i] has a real part.
+  static bool cplx_zero_real_part(const gen & x){
+    if (x.type!=_CPLX)
+      return false;
+    const gen & r=*x._CPLXptr;
+    if (r.type==_REAL)
+      return mpfr_zero_p(r._REALptr->inf);
+    return is_exactly_zero(r);
+  }
+  static bool at_most_one_in_size(const gen & y){
+    switch (y.type){
+    case _REAL:
+      return !mpfr_nan_p(y._REALptr->inf) && mpfr_cmp_si(y._REALptr->inf,-1)>=0 && mpfr_cmp_ui(y._REALptr->inf,1)<=0;
+    case _DOUBLE_:
+      return y._DOUBLE_val>=-1 && y._DOUBLE_val<=1;
+    case _INT_: case _ZINT: case _FRAC:
+      return is_greater(1,y,context0) && is_greater(y,-1,context0);
+    default:
+      return false;
+    }
+  }
+  static gen small_cplx_ln_form(gen (*f)(const gen &,GIAC_CONTEXT),const gen & x,bool hyp,GIAC_CONTEXT){
+    gen res=small_cplx_ln_form_(f,x,contextptr);
+    if (res.type!=_CPLX || !cplx_zero_real_part(x) || (hyp && !at_most_one_in_size(*(x._CPLXptr+1))))
+      return res;
+    // the zero of the imaginary part's type, as Giac's own evalf(i/3) has: an exact 0 beside an MPFR part made
+    // later functions take the complex value as exact and go to doubles (asinh(5*asin(i/3)) at Digits 40)
+    const gen & im=*(res._CPLXptr+1);
+    if (im.type==_REAL)
+      return gen(gen(real_object(gen(0),mpfr_get_prec(im._REALptr->inf))),im);
+    if (im.type==_DOUBLE_)
+      return gen(gen(0.0),im);
+    return gen(gen(0),im);
+  }
+  static gen asinasln_form(const gen & x,GIAC_CONTEXT){
+    if (ln_form_cancels(x,false,contextptr))
+      return cst_i*ln(-cst_i*x+sqrt_one_minus_square(x,contextptr),contextptr);
+    return -cst_i*ln(cst_i*x+sqrt_one_minus_square(x,contextptr),contextptr);
     // return cst_i*ln(sqrt(x*x-1,contextptr)+x,contextptr)+cst_pi_over_2;
+  }
+  static gen asinasln(const gen & x,GIAC_CONTEXT){
+    return small_cplx_ln_form(asinasln_form,x,false,contextptr);
   }
   gen * normal_sin_pi_12_ptr_(){
     static gen * ans=0;
@@ -2187,6 +2579,13 @@ namespace giac {
       }
     }
     if (e.type==_REAL){
+      if (!is_positive(e+1,contextptr) || !is_positive(1-e,contextptr)){
+	// outside [-1,1] MPFR's asin is NaN: the ln form, as for _FLOAT_ above
+	gen res=asinasln(e,contextptr);
+	if (angle_radian(contextptr))
+	  return res;
+	return (angle_degree(contextptr)?180:200)*res/m_pi(mpfr_get_prec(e._REALptr->inf));
+      }
       if (angle_radian(contextptr)) 
 	return e._REALptr->asin();
       else if(angle_degree(contextptr))
@@ -2313,13 +2712,83 @@ namespace giac {
     if ((e.type==_SYMB) && (e._SYMBptr->sommet==at_neg))
       return -asin(e._SYMBptr->feuille,contextptr);
     gen cste=angle_radian(contextptr)?cst_pi:(angle_degree(contextptr)?180:200);
+    // the rewrites below, asin(sin(a)) = +-(a-n*pi) and asin(cos(a)) through sin(pi/2-a),
+    // hold for a real a only (acos(cos(a)) comes here as pi/2-asin(cos(a))): asin(sin(2*i)) gave i*pi-2*i (right 2*i),
+    // acos(cos(ln(-pi))) gave (1+i)*pi-ln(-pi), a real number. A complex a keeps asin unevaluated.
+    if ((e.is_symb_of_sommet(at_sin) || e.is_symb_of_sommet(at_cos)) &&
+        (has_evalf(e._SYMBptr->feuille,a,1,contextptr)?!is_zero(im(a,contextptr),contextptr):!is_real(e._SYMBptr->feuille,contextptr)))
+      return symb_asin(e);
     if (e.is_symb_of_sommet(at_cos))
       e=symbolic(at_sin,cste/2-e._SYMBptr->feuille);
     if (e.is_symb_of_sommet(at_sin) && has_evalf(e._SYMBptr->feuille,a,1,contextptr)){
       // asin(sin(a))==a-2*k*pi or pi-a-2*k*pi
       gen n=_round(a/cste,contextptr);
       b=a-n*cste; // in [-pi/2,pi/2]
-      if (n.type==_INT_ && n.val%2==0)
+      // a has the current Digits only, so once n = round(a/pi) has about that many digits
+      // its last ones are noise (asin(sin(10^50)) at Digits 40 gave a value near 1.4e10); and the parity test below saw
+      // only an _INT_, so an even _ZINT n (|n| >= 2^31) took the odd branch: asin(sin(20!)) = -0.41 (right 0.41),
+      // asin(cos(30!)) = 0.22 (right -0.22). A large n is taken again from a/pi at Digits plus its own digits plus 20,
+      // and a/pi within 1e-12 of a half-integer there keeps asin unevaluated.
+      if (n.type==_ZINT || (n.type==_INT_ && (n.val>=(1<<20) || n.val<=-(1<<20)))){
+	int nd=decimal_digits(contextptr)+(n.type==_ZINT?int(mpz_sizeinbase(*n._ZINTptr,10)):10)+20;
+	int save_decimal_digits=decimal_digits(contextptr);
+	set_decimal_digits(nd,contextptr);
+	gen q;
+	try {
+	  q=evalf(e._SYMBptr->feuille/cste,1,contextptr);
+	} catch (...) {
+	  set_decimal_digits(save_decimal_digits,contextptr);
+	  throw;
+	}
+	set_decimal_digits(save_decimal_digits,contextptr);
+	if (q.type!=_REAL && q.type!=_DOUBLE_)
+	  return symb_asin(e);
+	n=_round(q,contextptr);
+	gen d=evalf_double(abs(q-n,contextptr),1,contextptr);
+	if ((n.type!=_INT_ && n.type!=_ZINT) || d.type!=_DOUBLE_ || d._DOUBLE_val>0.5-1e-12)
+	  return symb_asin(e);
+      }
+      else {
+	// a/pi near a half-integer is a tie at the current Digits, and round() of the tie
+	// picks the parity: acos(cos(10^-50)) = pi/2-asin(sin(pi/2-10^-50)), a/pi = 1/2-10^-50/pi read as 1/2 at Digits 40,
+	// n = 1, so -10^-50 (right 10^-50; 10^-30 the same at Digits 12). Such an n is taken again from a/pi at Digits
+	// plus 20, 40, ... 1280, until a/pi is clear of the half-integer by more than 10^10 units of its last digit;
+	// a tie no precision decides keeps asin unevaluated (evalf then gives the principal value).
+	gen q0=evalf(a/cste,1,contextptr);
+	gen d0=evalf_double(abs(q0-n,contextptr),1,contextptr);
+	if (d0.type!=_DOUBLE_ || d0._DOUBLE_val>0.5-1e-9){
+	  int save_decimal_digits=decimal_digits(contextptr);
+	  bool decided=false;
+	  for (int extra=20;extra<=1280 && !decided;extra*=2){
+	    int nd=save_decimal_digits+extra;
+	    set_decimal_digits(nd,contextptr);
+	    gen q;
+	    try {
+	      q=evalf(e._SYMBptr->feuille/cste,1,contextptr);
+	    } catch (...) {
+	      set_decimal_digits(save_decimal_digits,contextptr);
+	      throw;
+	    }
+	    set_decimal_digits(save_decimal_digits,contextptr);
+	    if (q.type!=_REAL && q.type!=_DOUBLE_)
+	      return symb_asin(e);
+	    gen m=_round(q,contextptr);
+	    if (m.type!=_INT_)
+	      return symb_asin(e);
+	    gen aq=abs(q,contextptr);
+	    if (is_greater(1,aq,contextptr))
+	      aq=1;
+	    gen t=(plus_one_half-abs(q-m,contextptr))*pow(gen(10),nd-10,contextptr);
+	    if (is_strictly_greater(t,aq,contextptr)){
+	      n=m;
+	      decided=true;
+	    }
+	  }
+	  if (!decided)
+	    return symb_asin(e);
+	}
+      }
+      if ((n.type==_INT_ && n.val%2==0) || (n.type==_ZINT && mpz_even_p(*n._ZINTptr)))
 	return e._SYMBptr->feuille-n*cste;
       return n*cste-e._SYMBptr->feuille;
     }
@@ -2333,7 +2802,8 @@ namespace giac {
     if (is_equal(e))
       return apply_to_equal(e,asin,contextptr);
     if (lidnt(e).empty() && is_positive(e*e-1,contextptr))
-      return (angle_radian(contextptr)?1:(angle_degree(contextptr)?rad2deg_g:rad2grad_g))*asinasln(e,contextptr);
+      // multiply in the caller's context: operator* uses context0, whose angle mode is the global one
+      return operator_times(angle_radian(contextptr)?1:(angle_degree(contextptr)?rad2deg_g:rad2grad_g),asinasln(e,contextptr),contextptr);
     return symb_asin(e);
   }
   static gen d_asin(const gen & args,GIAC_CONTEXT){
@@ -2414,16 +2884,27 @@ namespace giac {
 	return series(*e._SPOL1ptr,*at_exp,0,contextptr);
     }
     if (e.type==_REAL){
-      if (angle_radian(contextptr)) 
-	return e._REALptr->acos();
-      else if(angle_degree(contextptr))
-	return 180*e._REALptr->acos()/cst_pi;
-      //grad
-      else
-        return 200*e._REALptr->acos()/cst_pi;
+     if (!is_positive(e+1,contextptr) || !is_positive(1-e,contextptr)){
+       // outside [-1,1] MPFR's acos is NaN: pi/2-asin in ln form, pi at e's precision
+       gen pi_=m_pi(mpfr_get_prec(e._REALptr->inf));
+       gen res=pi_/2-asinasln(e,contextptr);
+       if (angle_radian(contextptr))
+         return res;
+       return (angle_degree(contextptr)?180:200)*res/pi_;
+     }
+     if (angle_radian(contextptr)) 
+       return e._REALptr->acos();
+     else if(angle_degree(contextptr))
+       return 180*e._REALptr->acos()/cst_pi;
+     //grad
+     else
+       return 200*e._REALptr->acos()/cst_pi;
     }
     if ( e.type==_DOUBLE_ || (e.type==_CPLX && (e.subtype || e._CPLXptr->type==_FLOAT_ || e._CPLXptr->type==_REAL)) ){
-      gen res=cst_pi/2-asinasln(e,contextptr); // -cst_i*no_context_evalf(ln(sqrt(e*e-1,contextptr)+e,contextptr));
+     // pi at the parts' MPFR precision: cst_pi/2 met the MPFR value as a double (14 digits)
+      gen pi_=(e.type==_CPLX && e._CPLXptr->type==_REAL)?m_pi(mpfr_get_prec(e._CPLXptr->_REALptr->inf)):gen(cst_pi);
+      gen res=pi_/2-asinasln(e,contextptr); // -cst_i*no_context_evalf(ln(sqrt(e*e-1,contextptr)+e,contextptr));
+      // gen res=cst_pi/2-asinasln(e,contextptr); // -cst_i*no_context_evalf(ln(sqrt(e*e-1,contextptr)+e,contextptr));
       if (angle_radian(contextptr)) 
 	return res;
       else if(angle_degree(contextptr))
@@ -2444,6 +2925,12 @@ namespace giac {
     gen g=asin(e,contextptr);
     if ( (g.type==_SYMB) && (g._SYMBptr->sommet==at_asin) )
       return symb_acos(e);
+    // a floating asin in degrees or grads: 90-asin(e) would leave a rounding error in the real part
+    if (!angle_radian(contextptr) && (g.type==_DOUBLE_ || (g.type==_CPLX && g._CPLXptr->type==_DOUBLE_))){
+      gen ed=evalf_double(e,1,contextptr);
+      if (ed.type==_DOUBLE_)
+	return acos(ed,contextptr);
+    }
     if (angle_radian(contextptr)) 
       return normal(cst_pi_over_2-asin(e,contextptr),contextptr);
     else if(angle_degree(contextptr))
@@ -2669,8 +3156,12 @@ namespace giac {
 #endif
       }
       if (e._CPLXptr->type==_REAL || e._CPLXptr->type==_FLOAT_){
-	gen g=exp(2*e,contextptr);
-	return (g+1)/(g-1);
+	// tanh(x+i*y)=(sinh(2x)+i*sin(2y))/(cosh(2x)+cos(2y)): no cancellation for small x, real part 0 for x=0
+	int mode=get_mode_set_radian(contextptr);
+	gen x2=2*(*e._CPLXptr),y2=2*(*(e._CPLXptr+1));
+	gen res=(sinh(x2,contextptr)+cst_i*sin(y2,contextptr))/(cosh(x2,contextptr)+cos(y2,contextptr));
+	angle_mode(mode,contextptr);
+	return res;
       }
     }
     if (is_squarematrix(e))
@@ -2711,8 +3202,43 @@ namespace giac {
   define_unary_function_ptr5( at_tanh ,alias_at_tanh,&__tanh,0,true);
 
   // static symbolic symb_asinh(const gen & e){  return symbolic(at_asinh,e);  }
+  static gen asinhasln_form(const gen & x,GIAC_CONTEXT){
+    gen s=x.type==_CPLX?sqrt_one_minus_square(cst_i*x,contextptr):sqrt(x*x+1,contextptr); // sqrt(x^2+1)
+    if (ln_form_cancels(x,true,contextptr))
+      return -ln(-x+s,contextptr);
+    return ln(x+s,contextptr);
+  }
   static gen asinhasln(const gen & x,GIAC_CONTEXT){
-    return ln(x+sqrt(x*x+1,contextptr),contextptr);
+    return small_cplx_ln_form(asinhasln_form,x,true,contextptr);
+  }
+  // an exact x that is not real, of size below 1/4 (its double): the exact ln form
+  // ln(x+sqrt(x^2+1)) cancels as the float one does, so its evalf at P digits left a real part near 10^-P where it is
+  // 0 (asinh(i/10^12): 8E-680+1E-12*i). asinh keeps it unevaluated, as asin keeps an exact
+  // complex argument, and evalf takes asinhasln at its working precision. A part with a float keeps today's path.
+  static bool small_exact_cplx(const gen & x,GIAC_CONTEXT){
+    if (x.type==_CPLX){
+      for (int k=0;k<2;++k){
+        int t=(x._CPLXptr+k)->type;
+        if (t==_REAL || t==_DOUBLE_ || t==_FLOAT_)
+          return false;
+      }
+    }
+    gen d=evalf_double(x,1,contextptr);
+    if (d.type!=_CPLX || d._CPLXptr->type!=_DOUBLE_ || (d._CPLXptr+1)->type!=_DOUBLE_)
+      return false;
+    double r=d._CPLXptr->_DOUBLE_val,i=(d._CPLXptr+1)->_DOUBLE_val;
+    return i!=0 && r*r+i*i<0.0625;
+  }
+  // an exact real x of size below 1/4 (its double; a double that reads 0, 10^-400, too): the
+  // exact ln form ln(x+sqrt(x^2+1)) is ln(1+x+O(x^2)), whose evalf at Digits cancels -log10|x| digits (asinh(1/10^100) at
+  // Digits 40 was -5.9e-39), so a sign decided on it took the noise: surd(asinh(1/10^100),3) was -(-asinh(...))^(1/3),
+  // the complex root of a negative number (-2.3E-34-4.0E-34*i, right 4.64158883361E-34). asinh keeps it
+  // unevaluated, as for an exact complex x, and evalf takes MPFR's asinh. A float x keeps today's path.
+  static bool small_exact_real(const gen & x,GIAC_CONTEXT){
+    if (x.type==_REAL || x.type==_DOUBLE_ || x.type==_FLOAT_ || x.type==_CPLX)
+      return false;
+    gen d=evalf_double(x,1,contextptr);
+    return d.type==_DOUBLE_ && d._DOUBLE_val*d._DOUBLE_val<0.0625;
   }
   gen asinh(const gen & e0,GIAC_CONTEXT){
     if (e0.type==_FLOAT_){
@@ -2756,6 +3282,12 @@ namespace giac {
       return symbolic(at_program,gen(makevecteur(a,0,asinh(b,contextptr)),_SEQ__VECT));
     if (keep_acosh_asinh(contextptr))
       return symbolic(at_asinh,e);
+    if (part_below_double(e,contextptr))
+      return symbolic(at_asinh,e);
+    if (small_exact_cplx(e,contextptr) || small_exact_real(e,contextptr))
+      return symbolic(at_asinh,e);
+    if (ln_form_cancels(e,true,contextptr))
+      return -ln(-e+sqrt(pow(e,2)+1,contextptr),contextptr);
     return ln(e+sqrt(pow(e,2)+1,contextptr),contextptr);
   }
   static gen d_asinh(const gen & args,GIAC_CONTEXT){
@@ -2772,12 +3304,9 @@ namespace giac {
 
   // static symbolic symb_acosh(const gen & e){  return symbolic(at_cosh,e);  }
   static gen acoshasln(const gen & x,GIAC_CONTEXT){
-    if (re(x,contextptr)==x){
-      gen res=ln(x+sqrt(x*x-1,contextptr),contextptr);
-      if (is_positive(-x,contextptr))
-	return -res; // avoid multiple sqrt but it's the opposite for example for x non real
-      return res;
-    }
+    // x>=1 only: below 1 the negated ln was the conjugate of the principal value (acosh(-2.0) = 1.317-3.142*i)
+    if (re(x,contextptr)==x && is_positive(x-1,contextptr))
+      return ln(x+sqrt(x*x-1,contextptr),contextptr);
     return ln(x+sqrt(x+1,contextptr)*sqrt(x-1,contextptr),contextptr);
   }
   gen acosh(const gen & e0,GIAC_CONTEXT){
@@ -2797,8 +3326,12 @@ namespace giac {
 #else
     if (e.type==_DOUBLE_)
       return acoshasln(e,contextptr);
-    if (e.type==_REAL)
+    if (e.type==_REAL){
+      // below 1 MPFR's acosh is NaN: the principal ln form, which is acoshasln's for a non-real x
+      if (!is_positive(e-1,contextptr))
+	return ln(e+sqrt(e+1,contextptr)*sqrt(e-1,contextptr),contextptr);
       return e._REALptr->acosh();
+    }
 #endif
     if (e.type==_SPOL1){
       gen expo=e._SPOL1ptr->empty()?undef:e._SPOL1ptr->front().exponent;
@@ -2839,6 +3372,55 @@ namespace giac {
 #endif
   define_unary_function_ptr5( at_acosh ,alias_at_acosh,&__acosh,0,true);
 
+  // atanh(z) = ln((1+z)/(1-z))/2 takes the ln of 1+2z+O(z^2), so for a small complex
+  // z its float value cancels -log10|z| digits in both parts, and a part far below the other is lost whole: at Digits 40
+  // evalf(atanh(i/10^1000)) was -0.5e-2000*i (right 1e-1000*i), atanh(10^-1000*(1+i)) the same (right 1e-1000+1e-1000*i).
+  // By the parts z = x+i*y, s = x^2+y^2 (|z| < 1/4, so 1-s > 0):
+  //   atanh(z) = atanh(2*x/(1+s))/2 + i*atan(2*y/(1-s))/2,  atan(z) = atan(2*x/(1-s))/2 + i*atanh(2*y/(1+s))/2,
+  // MPFR's real atanh and atan of numbers with no cancellation. e: a _CPLX whose parts are MPFR or exactly 0, the
+  // larger below 1/4 (small_cplx_lost_bits); an exact 0 part is an MPFR zero, so the result's zero part is
+  // one too. hyp: atanh, else atan (in radians).
+  static bool atan_atanh_small_cplx(const gen & e,bool hyp,gen & res){
+    int prec=0;
+    if (!small_cplx_lost_bits(e,prec))
+      return false;
+    gen x=*e._CPLXptr,y=*(e._CPLXptr+1);
+    if (x.type!=_REAL)
+      x=real_object(gen(0),prec);
+    if (y.type!=_REAL)
+      y=real_object(gen(0),prec);
+    gen s=x*x+y*y;
+    gen u=2*x/(hyp?1+s:1-s),v=2*y/(hyp?1-s:1+s);
+    if (u.type!=_REAL || v.type!=_REAL)
+      return false;
+    gen a=hyp?u._REALptr->atanh():u._REALptr->atan(),b=hyp?v._REALptr->atan():v._REALptr->atanh();
+    if (a.type!=_REAL || b.type!=_REAL)
+      return false;
+    res=gen(a/2,b/2);
+    return true;
+  }
+  // an exact z below 1/4 in size (its double; a part that reads 0 too) that is not real:
+  // the exact form ln((1+z)/(1-z))/2 cancels at evalf as the float one does, and Giac had it for 10^-100*i
+  // (ln((10^200-1+2*10^100*i)/(10^200+1))/2). Real part exactly 0: atanh(i*y) = i*atan(y), in radians (an angle-mode
+  // atan would scale it); else atanh stays unevaluated, as for a real x, and evalf takes the parts above.
+  static bool small_exact_value(const gen & x,GIAC_CONTEXT){
+    if (x.type==_REAL || x.type==_DOUBLE_ || x.type==_FLOAT_)
+      return false;
+    if (x.type==_CPLX){
+      for (int k=0;k<2;++k){
+        int t=(x._CPLXptr+k)->type;
+        if (t==_REAL || t==_DOUBLE_ || t==_FLOAT_)
+          return false;
+      }
+    }
+    gen d=evalf_double(x,1,contextptr);
+    if (d.type==_DOUBLE_)
+      return d._DOUBLE_val*d._DOUBLE_val<0.0625;
+    if (d.type!=_CPLX || d._CPLXptr->type!=_DOUBLE_ || (d._CPLXptr+1)->type!=_DOUBLE_)
+      return false;
+    double r=d._CPLXptr->_DOUBLE_val,i=(d._CPLXptr+1)->_DOUBLE_val;
+    return r*r+i*i<0.0625;
+  }
   // static symbolic symb_atanh(const gen & e){  return symbolic(at_atanh,e);}
   gen atanh(const gen & e0,GIAC_CONTEXT){
     if (e0.type==_FLOAT_){
@@ -2862,6 +3444,12 @@ namespace giac {
       gen expo=e._SPOL1ptr->empty()?undef:e._SPOL1ptr->front().exponent;
       if (is_positive(expo,contextptr))
 	return series(*e._SPOL1ptr,*at_atanh,0,contextptr);
+    }
+    // a small complex MPFR value by its parts (atan_atanh_small_cplx), not the ln form.
+    {
+      gen small_res;
+      if (atan_atanh_small_cplx(e,true,small_res))
+        return small_res;
     }
 #ifdef BF2GMP_H
     if ( e.type==_REAL || ((e.type==_CPLX) && (e.subtype || e._CPLXptr->type==_REAL)) )
@@ -2889,6 +3477,19 @@ namespace giac {
     gen a,b;
     if (is_algebraic_program(e,a,b))
       return symbolic(at_program,gen(makevecteur(a,0,atanh(b,contextptr)),_SEQ__VECT));
+    // an exact real x of size below 1/4 (its double; a double that reads 0, 89999/10^1003,
+    // too): the exact form ln((1+x)/(1-x))/2 cancels -log10|x| digits at evalf (atanh(89999/10^1003) at Digits 40 was
+    // -4.6e-41, at Digits 60 an exact 0), so ln(atanh(89.999/1E1000)) read noise (-70.0+3.14*i, right -2298.085).
+    // atanh keeps it unevaluated, as for asinh, and evalf takes MPFR's atanh. A float x keeps today's path.
+    if (small_exact_real(e,contextptr))
+      return symbolic(at_atanh,e);
+    // a small exact z that is not real (small_exact_value).
+    if (small_exact_value(e,contextptr)){
+      gen r=re(e,contextptr);
+      if (angle_radian(contextptr) && (is_exactly_zero(r) || is_exactly_zero(ratnormal(r,contextptr))))
+        return cst_i*atan(im(e,contextptr),contextptr);
+      return symbolic(at_atanh,e);
+    }
     return rdiv(ln(rdiv(1+e,1-e,contextptr),contextptr),plus_two);
     // return symbolic(at_atanh,e);
   }
@@ -3490,8 +4091,11 @@ namespace giac {
 	if (name[bl-2]=='_'){
 	  switch (name[bl-1]){
 	  case 'd':
-	    if (a.type!=_INT_ && a.type!=_DOUBLE_ && a.type!=_FRAC)
-	      return gensizeerr(gettext("Unable to convert to float (in sto) ")+a.print(contextptr));
+	    if (a.type!=_INT_ && a.type!=_DOUBLE_ && a.type!=_FRAC){
+              string msg=gettext("Unable to convert to float (in sto) ")+a.print(contextptr);
+              *logptr(contextptr) << "Float typed variable error: " << msg << "\n"; // insure something is reported (error might be catched and hard to debug)
+	      return gensizeerr(msg);
+            }
 	    break;
 	  case 'f':
 	    if (a.type==_FRAC)
@@ -3504,13 +4108,19 @@ namespace giac {
 	      return sto(i,b,in_place,contextptr);
 	    }
 	    if (a.type!=_INT_){
-	      if (a.type!=_ZINT || mpz_sizeinbase(*a._ZINTptr,2)>62)
-		return gensizeerr(gettext("Unable to convert to integer (in sto) ")+a.print(contextptr));
+	      if (a.type!=_ZINT || mpz_sizeinbase(*a._ZINTptr,2)>62){
+		string msg=gettext("Unable to convert to integer (in sto) ")+a.print(contextptr);
+                *logptr(contextptr) << "Integer typed variable error: " << msg << "\n"; // insure something is reported (error might be catched and hard to debug)
+                return gensizeerr(msg);
+              }
 	    }
 	    break;
 	  case 'v':
-	    if (a.type!=_VECT)
-	      return gensizeerr(gettext("Unable to convert to vector (in sto) ")+a.print(contextptr));
+	    if (a.type!=_VECT){
+	      string msg=gettext("Unable to convert to vector (in sto) ")+a.print(contextptr);
+              *logptr(contextptr) << "Vector typed variable error: " << msg << "\n"; // insure something is reported (error might be catched and hard to debug)
+              return gensizeerr(msg);
+            }
 	    break;
 	  case 's':
 	    if (a.type!=_STRNG)
@@ -5456,7 +6066,7 @@ namespace giac {
   */
   const char _pow_s []="^";
 #ifndef GIAC_HAS_STO_38
-#if defined NSPIRE || defined FXCG
+#if (defined NSPIRE || defined FXCG || defined HPG2) && !defined __EMSCRIPTEN__
   define_unary_function_eval2_index (14,__pow,&_pow,_pow_s,&printsommetasoperator);
 #else
   unary_function_eval __pow(14,&_pow,0,_pow_s,&printsommetasoperator,0);
@@ -5469,7 +6079,7 @@ namespace giac {
 
   // print power like a^b (args==1), pow(a,b) (args==0) or a**b (args==-1)
   static gen _printpow(const gen & args,GIAC_CONTEXT){
-#if defined NSPIRE || defined FXCG
+#if defined NSPIRE || defined FXCG || defined HPG2
     return undef;
 #else
     if ( args.type==_STRNG && args.subtype==-1) return  args;
@@ -6117,6 +6727,9 @@ namespace giac {
   static const char _table_s []="table";
   static define_unary_function_eval (__table,&_table,_table_s);
   define_unary_function_ptr5( at_table ,alias_at_table,&__table,0,true);
+  static const char _dict_s []="dict";
+  static define_unary_function_eval (__dict,&_table,_dict_s);
+  define_unary_function_ptr5( at_dict ,alias_at_dict,&__dict,0,true);
 
   string printasand(const gen & feuille,const char * sommetstr,GIAC_CONTEXT){
     if (abs_calc_mode(contextptr)==38)
@@ -7143,6 +7756,24 @@ namespace giac {
     gen tmp=subst(args,l,lnew,false,contextptr);
     if (tmp.type==_CPLX && is_zero(*(tmp._CPLXptr+1),contextptr))
       tmp=*tmp._CPLXptr;
+    if (tmp.type==_CPLX){
+      // a complex value: the floor of each part, as the _CPLX branch above does for an exact one (evalf of the same
+      // floor does it too, but returns exact integers, so f(floor(z)) in evalf kept f of an exact Gaussian integer
+      // unevaluated). Each part takes the real path below with its precision raise. An imaginary part at the
+      // rounding noise of the real one keeps floor unevaluated, as before.
+      gen gr=evalf_double(abs(*tmp._CPLXptr,contextptr),1,contextptr),gi=evalf_double(abs(*(tmp._CPLXptr+1),contextptr),1,contextptr);
+      double tr=gr.type==_DOUBLE_?gr._DOUBLE_val:1e300,ti=gi.type==_DOUBLE_?gi._DOUBLE_val:0;
+      gen r,i;
+      if (ti>tr*std::pow(10.0,2-decimal_digits(contextptr)) && ti>1e-300){
+        reim(args,r,i,contextptr);
+        if (!is_zero(i,contextptr) && r!=args && i!=args){
+          gen fr=_floor(r,contextptr),fi=_floor(i,contextptr);
+          if (is_integer(fr) && is_integer(fi))
+            return fr+cst_i*fi;
+        }
+      }
+      return symb_floor(args);
+    }
     if (tmp.type==_REAL){
 #ifdef HAVE_LIBMPFR
       // reeval with the right precision
@@ -7215,7 +7846,7 @@ namespace giac {
 	return Iquo(n,d,contextptr)+1;
     }
     vecteur l(lidnt(args));
-    vecteur lnew=*evalf(l,1,contextptr)._VECTptr;
+    vecteur lnew=gen2vecteur(evalf(l,1,contextptr));
     gen tmp=subst(args,l,lnew,false,contextptr);
     if (tmp.type==_REAL || tmp.type==_FLOAT_)
       return -_floor(-tmp,contextptr);
@@ -7649,6 +8280,10 @@ namespace giac {
     if ( (args.type!=_VECT) || (args._VECTptr->size()!=2))
       return symbolic(at_fracmod,args);
     vecteur & v=*args._VECTptr;
+    // the modulus must be a positive integer. in_fracmod (gen.cc) takes the square root of
+    // modulus/2 with mpz_sqrt, which aborts on a negative number: fracmod(41,-2) trapped the wasm.
+    if (is_integer(v[1]) && !is_strictly_positive(v[1],contextptr))
+      return gensizeerr(gettext("fracmod: the modulus must be a positive integer"));
     return fracmod(v[0],v[1]);
   }
   static const char _fracmod_s []="fracmod";
@@ -7933,6 +8568,12 @@ namespace giac {
   bool need_workaround(const gen & g){
     if (g.type==_REAL || (g.type==_CPLX && g._CPLXptr->type==_REAL && (g._CPLXptr+1)->type==_REAL))
       return false;
+    // a complex value needs the workaround when a part is an overflow (an infinity or a
+    // NaN), tested part by part: z/z of a complex double is not exactly 1 when the division rounds (Gamma(1.0+i):
+    // z/z-1 = -3.6e-15), which sent evalf(Gamma(1+i)) at Digits <= 14 to 30 digits, where Gamma has no complex
+    // MPFR path, so it stayed Gamma(1.0000000000000+i).
+    if (g.type==_CPLX)
+      return need_workaround(*g._CPLXptr) || need_workaround(*(g._CPLXptr+1));
     if (g.type<=_CPLX)
       return g!=0 && g/g!=1;
     if (is_inf(g) || is_undef(g))
@@ -9344,6 +9985,10 @@ namespace giac {
   static define_unary_function_eval4_index (166,__normalmod,&_normalmod,_normalmod_s,&printsommetasnormalmod,&texprintsommetasoperator);
   define_unary_function_ptr( at_normalmod ,alias_at_normalmod ,&__normalmod);
 
+  static const char _zn_s []="zn";
+  static define_unary_function_eval (__zn,&_normalmod,_zn_s);
+  define_unary_function_ptr5( at_zn ,alias_at_zn,&__zn,0,true);
+  
   // a=expression, x variable, n=number of terms, 
   // compute an approx value of sum((-1)^k*a(k),k,0,+infinity)
   // using Chebychev polynomials
@@ -11259,6 +11904,18 @@ namespace giac {
   // #ifndef GNUWINCE
   // #ifndef WIN32
   // #endif
+  gen gen_oom(){
+#if !defined NO_STDEXCEPT && !defined EMCC
+    if (debug_infolevel!=-5)
+      throw(std::runtime_error("User interrupt or Out of memory"));
+#endif
+    static gen gen_oom_s;
+    if (gen_oom_s.type==0){
+      gen_oom_s=string2gen("User interrupt or Out of memory",false);
+      gen_oom_s.subtype=-1;
+    }
+    return gen_oom_s;
+  }
 #if defined(GIAC_GENERIC_CONSTANTS) // || (defined(VISUALC) && !defined(RTOS_THREADX)) || defined( x86_64)
   const gen zero(0);
   const gen plus_one(1);

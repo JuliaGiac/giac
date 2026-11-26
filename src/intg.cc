@@ -3487,6 +3487,12 @@ namespace giac {
 	gen num=nd[0],den=nd[1];
 	vecteur propf=lvarx(den,gen_x);
 	gen_sort_f(propf.begin(),propf.end(),islesscomplexthanf);
+	// a denominator with no variable that depends on x (reached from int(2^tanh(x),x,0,1), Digits 40)
+	// gives an empty propf, and propf.back() read the memory before it: _quorem compared that garbage as its variable
+	// and trapped the wasm engine (memory access out of bounds), or not, by the heap's layout. No variable: no propfrac step.
+	if (propf.empty())
+	  nd=undef;
+	else
 	nd=_quorem(makesequence(num,den,propf.back()),contextptr);
 	if (nd.type==_VECT && nd._VECTptr->size()==2){
 	  gen q=nd[0],r=nd[1];
@@ -3669,6 +3675,17 @@ namespace giac {
 	 abs(tmp-tmp2,contextptr)._DOUBLE_val<=1e-3*abs(tmp2,contextptr)._DOUBLE_val
 	 )
       return simplifier(exactvalue,contextptr);
+    // tegral stops at an error of 1e-6 relative to the integral of |f|, so an exact value
+    // 0 cannot be told apart from a numeric value of that size (int(trunc(x),x,-3/2,3/2) = 0 against -2.9e-7, with
+    // the integral of |f| 1). Keep the exact 0 when the numeric value is below 1e-5 times the integral of |f|.
+    if (abs(tmp,contextptr)._DOUBLE_val<1e-8){
+      gen absint;
+      if (tegral(abs(f,contextptr),x,a,b,1e-6,(1<<10),absint,true,contextptr)){
+        absint=evalf_double(absint,1,contextptr);
+        if (absint.type==_DOUBLE_ && abs(tmp2,contextptr)._DOUBLE_val<=1e-5*absint._DOUBLE_val)
+          return simplifier(exactvalue,contextptr);
+      }
+    }
     *logptr(contextptr) << gettext("Error while checking exact value with approximate value, returning both!") << '\n';
     return makevecteur(exactvalue,tmp2);
   }
@@ -4073,6 +4090,36 @@ namespace giac {
     return curviligne(w,v,curve,V,tmin,tmax,contextptr);
   }
 
+  // the definite integral splits floor (and ceil, as floor) at its jumps, but not trunc,
+  // which _trunc leaves unevaluated for an argument of unproven sign, so x*trunc(x) was used across trunc's jumps
+  // (int(trunc(x),x,-1/2,5/2) = 3*trunc(x), right 2). Off the integers trunc(u) = floor(u)+(1-sign(u))/2, so the
+  // integral is the same; the floor split cuts at every integer of u, 0 included, and sign(u) is constant on each piece.
+  // Only the trunc nodes that contain x are rewritten, each as its own form: trunc(a) of an x-free a stays trunc(a)
+  // (floor(a)+(1-sign(a))/2 is wrong at the integers of a, int(trunc(x)*trunc(a),x,-3/2,-1/2) at a = 0).
+  extern const unary_function_ptr * const at_trunc;
+  static gen trunc2floor_noeval(const gen & g,const gen & x,GIAC_CONTEXT){
+    vecteur ltrunc(lvarx(lop(g,at_trunc),x));
+    if (ltrunc.empty())
+      return g;
+    vecteur lfloor;
+    for (unsigned i=0;i<ltrunc.size();++i){
+      const gen & t=ltrunc[i];
+      if (t.type!=_SYMB || t._SYMBptr->feuille.type==_VECT){ // trunc(x,n) and a list stay as they are
+        lfloor.push_back(t);
+        continue;
+      }
+      gen u=trunc2floor_noeval(t._SYMBptr->feuille,x,contextptr); // a trunc nested in the argument
+      lfloor.push_back(symbolic(at_floor,u)+(1-symbolic(at_sign,u))/2);
+    }
+    return subst(g,ltrunc,lfloor,true,contextptr);
+  }
+  static gen trunc2floor(const gen & g,const gen & x,GIAC_CONTEXT){
+    if (lvarx(lop(g,at_trunc),x).empty())
+      return g;
+    // evaluated, as a typed integrand is: the floor split substitutes floor's value into this form piece by piece
+    return eval(trunc2floor_noeval(g,x,contextptr),1,contextptr);
+  }
+
   gen _integrate_(const gen &args,GIAC_CONTEXT){
 #ifdef LOGINT
     *logptr(contextptr) << gettext("integrate begin") << '\n';
@@ -4349,6 +4396,7 @@ namespace giac {
       if (borne_inf==borne_sup)
 	return 0;
       v[0]=ceil2floor(v[0],contextptr,true);
+      v[0]=trunc2floor(v[0],x,contextptr);
       vecteur lfloor(lop(v[0],at_floor));
       lfloor=lvarx(lfloor,x);
       if (!lfloor.empty()){
@@ -4376,8 +4424,15 @@ namespace giac {
 	    stepn=-1;
 	  }
 	  gen cur=borne_inf,next=(n1+stepn-b)/a,res=0;
-	  if (stepn==-1 && n1==a*borne_inf+b)
-	    n1 -= 1;
+	  if (stepn==-1){
+	    // a*x+b decreases from a non-integer start u0, so floor is n1 = floor(u0) until
+	    // a*x+b reaches n1; the jump was taken where it reaches n1-1, one interval late (int(floor(-x),x,-3/2,-1/2) = 1,
+	    // right 1/2; ceil goes through floor(-x): int(ceil(x),x,1/2,3/2) = 1, right 3/2). From an integer start u0 = n1
+	    // floor is n1-1 at once and the next jump is at n1-1, as before.
+	    if (n1==a*borne_inf+b)
+	      n1 -= 1;
+	    next=(n1-b)/a;
+	  }
 	  for (;is_greater(borne_sup,next,contextptr); cur=next,next+=stepx,n1+=stepn){
 	    tmp=quotesubst(v[0],lfloor.front(),n1,contextptr);
 	    res += _integrate(makesequence(tmp,x,cur,next),contextptr);
@@ -4386,7 +4441,7 @@ namespace giac {
 #endif
 	    if (ctrl_c || interrupted) { 
 	      interrupted = true; ctrl_c=false;
-	      gensizeerr(gettext("Stopped by user interruption."),res);
+	      res=gen_oom(); // gensizeerr(gettext("Stopped by user interruption."),res);
 	      return res;
 	    }
 	    if (is_undef(res))
@@ -4693,7 +4748,42 @@ namespace giac {
     return symbolic(at_pow,makesequence(f._VECTptr->front(),f1));
   }
   // "unary" version
+  // e holds a call of integrate, int or integration (int and integration are separate
+  // functions that call _integrate, so at_integrate alone does not find them)
+  static bool holds_integral_call(const gen & e){
+    if (e.type==_SYMB){
+      const char * s=e._SYMBptr->sommet.ptr()->s;
+      if (e._SYMBptr->sommet==at_integrate || (s && (!strcmp(s,"int") || !strcmp(s,"integration"))))
+	return true;
+      return holds_integral_call(e._SYMBptr->feuille);
+    }
+    if (e.type==_VECT){
+      const vecteur & w=*e._VECTptr;
+      for (size_t i=0;i<w.size();++i){
+	if (holds_integral_call(w[i]))
+	  return true;
+      }
+    }
+    return false;
+  }
+
   gen _integrate(const gen & args_,GIAC_CONTEXT){
+    // the variable of a definite integral is a fresh name whatever it holds. evalf_double of the
+    // integrand below, with a name holding BesselJ(1,2) kept unevaluated at 40 digits, failed with Bad Argument Value;
+    // a name holding a float went on, and int(y^2,y,0,a) was 0. The bounds are read with the name's value, as before.
+    if (args_.type==_VECT && args_._VECTptr->size()>=4 && (*args_._VECTptr)[1].type==_IDNT && args_._VECTptr->back()!=at_assume){
+      const gen & x=(*args_._VECTptr)[1];
+      gen xval=assumeeval(x,contextptr);
+      if (xval!=x && !(xval.type==_VECT && xval.subtype==_ASSUME__VECT)){
+	vecteur w(*args_._VECTptr);
+	for (size_t i=2;i<w.size();++i)
+	  w[i]=eval(w[i],eval_level(contextptr),contextptr);
+	purgenoassume(x,contextptr);
+	gen res=protect_integrate(gen(w,_SEQ__VECT),contextptr);
+	sto(xval,x,contextptr);
+	return res;
+      }
+    }
     bool setcplx=false;
     if (!complex_mode(contextptr)){
       // if there are ln inside, switch to complex mode
@@ -4742,7 +4832,10 @@ namespace giac {
     if (args.type==_VECT && args._VECTptr->size()==4){
       vecteur v = *args._VECTptr;
       gen x=v[1],a=v[2],b=v[3];
-      if (x.type==_IDNT && a.type!=_DOUBLE_ && b.type!=_DOUBLE_){
+      // the preview below only writes "// ∫ ~= ..." to the log, but for an integrand that holds an
+      // integral it integrates the inner one at every sample point of the outer tegral: the nested
+      // int(int(x^2+y^2,y,0,3),x,0,2) cost 1.7 million interrupt checks, the same with y=0..3 for the inner one 5000
+      if (x.type==_IDNT && a.type!=_DOUBLE_ && b.type!=_DOUBLE_ && !holds_integral_call(v[0])){
         gen v0=evalf_double(v[0],1,contextptr),resapprox,tmp;
         vecteur lv=lidnt(v0);
         if (lv.size()==1 && lv[0]==x && has_evalf(a,tmp,1,contextptr) && has_evalf(b,tmp,1,contextptr) && tegral(v[0],x,a,b,1e-6,(1<<10),resapprox,false,contextptr)){
@@ -5007,6 +5100,8 @@ namespace giac {
     if (!lop(f,at_when).empty() || !lop(f,at_piecewise).empty())
       return false;
     if (!loptab(Heavisidetosign(f,contextptr),sign_floor_ceil_round_tab).empty() )
+      return false;
+    if (!lop(f,at_trunc).empty()) // trunc jumps like floor; x*trunc(x) is no antiderivative across 0 or a jump
       return false;
     if (f.type!=_SYMB || is_constant_wrt(f,x,contextptr))
       return true;

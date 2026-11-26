@@ -543,7 +543,7 @@ namespace giac {
     fclose(source);
   }
 
-#if !defined VISUALC && ! defined __MINGW_H && !defined BESTA_OS && !defined FXCG
+#if !defined VISUALC && ! defined __MINGW_H && !defined BESTA_OS && !defined(FREERTOS) && !defined FXCG
   int set_nonblock_flag (int desc, int value){
     int oldflags = fcntl (desc, F_GETFL, 0);
     /* If reading the flags failed, return error indication now. */
@@ -1100,7 +1100,7 @@ namespace giac {
   }
 
 #if defined KHICAS || defined SDL_KHICAS || defined GIAC_HAS_STO_38 || defined USE_GMP_REPLACEMENTS
-#ifndef SDL_KHICAS
+#if !defined SDL_KHICAS || defined HPG2
   void arc_en_ciel(int k,int & r,int & g,int & b){
     k += 21;
     k %= 126;
@@ -1486,6 +1486,29 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
     return true;
   }
 
+  bool has_rational_infos(const gen & f,const gen &x,const gen & y,gen & eq,gen &parameq,GIAC_CONTEXT){
+    eq=0; parameq=undef;
+    vecteur l(lvar(f));
+    for (int i=0;i<l.size();++i){
+      if (l[i]==x)
+        continue;
+      if (contains(l[i],x))
+        return false;
+    }
+    eq=_numer(y-f,contextptr);
+    parameq=x+cst_i*f;
+    return true;
+  }
+
+  void add_rational_infos(vecteur & v,const gen & eq,const gen & parameq){
+    if (v.size()!=5)
+      return;
+    // must add equation (6th component), rat param x+i*f (7th), undef
+    v.push_back(eq);
+    v.push_back(parameq);
+    v.push_back(undef);
+  }
+
   gen plotfunc(const gen & f_,const gen & vars,const vecteur & attributs,int densityplot,double function_xmin,double function_xmax,double function_ymin,double function_ymax,double function_zmin, double function_zmax,int nstep,int jstep,bool showeq,const context * contextptr){
     int pal=-1;
     if (!attributs.empty() && attributs[0].type==_INT_){
@@ -1658,6 +1681,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       int protect=giac_bind(vecteur(1,xmin),localvar,newcontextptr);
       vecteur chemin;
       double i=xmin;
+      gen eq,parameq; bool rat=has_rational_infos(f,vars,y__IDNT_e,eq,parameq,contextptr);
       for (;!ctrl_c && !interrupted && i<xmax;i+= step){
 	// yy=evalf_double(subst(f,vars,i,false,contextptr),1,contextptr);
 	local_sto_double(i,*vars._IDNTptr,newcontextptr);
@@ -1670,8 +1694,11 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
 	if (yy.type!=_DOUBLE_){
 	  if (debug_infolevel)
 	    CERR << y << " not real at " << i << " value " << yy << " type " << int(yy.type) << '\n';
-	  if (!chemin.empty())
-	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+	  if (!chemin.empty()){
+            vecteur component=makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq);
+            if (rat) add_rational_infos(component,eq,parameq); 
+	    res.push_back(pnt_attrib(symb_curve(gen(component,_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+          }
 	  xmin=i;
 	  chemin.clear();
 	  continue;
@@ -1715,7 +1742,9 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
 	      CERR << y << " step at " << i << " " << yy << '\n';
 	      CERR << "curve " << chemin.size() << " " << chemin.front() << " .. " << chemin.back() << '\n';
 	    }
-	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+            vecteur component=makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq);
+            if (rat) add_rational_infos(component,eq,parameq); 
+	    res.push_back(pnt_attrib(symb_curve(gen(component,_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
 	  }
 	  xmin=i;
 	  chemin=vecteur(1,gen(i,j));
@@ -1725,7 +1754,9 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       if (!chemin.empty()){
 	if (debug_infolevel)
 	  CERR << "curve " << chemin.size() << " " << chemin.front() << " .. " << chemin.back() << '\n';
-	res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+        vecteur component=makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq);
+        if (rat) add_rational_infos(component,eq,parameq); 
+	res.push_back(pnt_attrib(symb_curve(gen(component,_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
       }
       leave(protect,localvar,newcontextptr);
 #ifndef WIN32
@@ -3695,6 +3726,28 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return true;
     }
     if ( (c.type!=_SYMB) || (c._SYMBptr->sommet!=at_cercle)){
+      if (detect_conic && c.is_symb_of_sommet(at_hypersurface)){
+	gen & f=c._SYMBptr->feuille;
+        int i=f._VECTptr->size();
+        if (i>=2){
+          gen eq=f[1];
+          vecteur vars=makevecteur(x__IDNT_e,y__IDNT_e,z__IDNT_e);
+          if (i>=3 && f[2].type==_VECT)
+            vars=*f[2]._VECTptr;
+          gen x0,y0,z0,equation_reduite;
+          vecteur propre,V0,V1,V2,param_surface,centrev;
+          int ctype=quadrique_reduite(eq,undef,vars,x0,y0,z0,V0,V1,V2,propre,equation_reduite,param_surface,centrev,true,contextptr);
+          if (ctype>0 && !is_undef(centrev)){
+            gen deq=_derive(makesequence(eq,vars),contextptr);
+            gen S=_solve(makesequence(deq,vars),contextptr);
+            if (S.type==_VECT && S._VECTptr->size()==1 && S[0].type==_VECT)
+              centre=gen(*S[0]._VECTptr,_POINT__VECT);
+            else
+              centre=gen(centrev,_POINT__VECT);
+            return true;
+          }
+        }
+      }
       if (detect_conic && c.is_symb_of_sommet(at_curve)){
 	gen & f=c._SYMBptr->feuille;
 	if (f.type!=_VECT || f._VECTptr->size()<2)
@@ -3757,10 +3810,28 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return false;
     gen a=remove_at_pnt(diam._VECTptr->front());
     gen b=remove_at_pnt(diam._VECTptr->back());
+#if 1
+    gen ar,ai,br,bi,cr,ci,rr,ri;
+    reim(a,ar,ai,contextptr);
+    reim(b,br,bi,contextptr);
+    cr=recursive_normal(ratnormal((ar+br)/2,contextptr),contextptr);
+    ci=recursive_normal(ratnormal((ai+bi)/2,contextptr),contextptr);
+    centre=cr+cst_i*ci;
+#else
     centre=recursive_normal(ratnormal(rdiv(a+b,plus_two,contextptr),contextptr),contextptr);
+#endif
     rayon=rdiv(b-a,plus_two,contextptr);
+#if 0
+    rr=(br-ar)/2;
+    ri=(bi-ai)/2;
+    if (absrayon)
+      rayon=recursive_normal(ratnormal(sqrt(rr*rr+ri*ri,contextptr),contextptr),contextptr);
+    else
+      rayon=rr+cst_i*ri;
+#else
     if (absrayon)
       rayon=abs(recursive_normal(ratnormal(rayon,contextptr),contextptr),contextptr);
+#endif
     return true;
   }
 
@@ -4290,7 +4361,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return gensizeerr(contextptr);
     vecteur attributs(1,default_color(contextptr));
     read_attributs(gen2vecteur(args),attributs,contextptr);
-    if (centre.type==_VECT){ 
+    if (centre.type==_VECT && centre.subtype!=_POINT__VECT){ 
       // conic: return center, 1 focus, 1 point
       vecteur w=*centre._VECTptr;
       for (int i=1;i<w.size();++i)
@@ -5063,7 +5134,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
     if (s<2)
       return gendimerr(contextptr);
     v=vecteur(v.begin(),v.begin()+s);
-    v.push_back(v.front());
+    gen v0(v.front()); v.push_back(v0);
     polygonify(v,contextptr);
     return pnt_attrib(gen(v,_GROUP__VECT),attributs,contextptr);
   }
@@ -6114,6 +6185,8 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return ref*ref+ief*ief;
     }
     gen ef=e-f,r,i;
+    if (is_inf(ef))
+      return plus_inf;
     reim(ef,r,i,contextptr);
     return pow(r,2)+pow(i,2);
 #endif
@@ -6428,7 +6501,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return undef;
     if (v.front()!=v.back()){
       ++s;
-      v.push_back(v.front());
+      gen v0(v.front()); v.push_back(v0);
     }
     gen res;
     for (int i=3;i<s;++i){
@@ -6482,7 +6555,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       return undef;
     if (v.front()!=v.back()){
       ++s;
-      v.push_back(v.front());
+      gen v0(v.front());v.push_back(v0);
     }
     gen res;
     for (int i=0;i<s-1;++i){
@@ -9796,7 +9869,7 @@ static vecteur densityscale(double xmin,double xmax,double ymin,double ymax,doub
       gen centre,rayon,r,i;
       if (!centre_rayon(e,centre,rayon,false,contextptr))
 	return gensizeerr(contextptr);
-      rayon=recursive_normal(rayon,contextptr);
+      rayon=ratnormal(rayon,contextptr); // recursive_normal(rayon,contextptr);
       reim(rayon,r,i,contextptr);
       r=recursive_normal(r*r+i*i,contextptr);
       return symbolic(at_equal,makesequence(pow(x-re(centre,contextptr),2)+pow(y-im(centre,contextptr),2),r));
@@ -15820,7 +15893,7 @@ gen _vers(const gen & g,GIAC_CONTEXT){
       for (int i=0;i<=50;i++){
 	v.push_back(c+ec*exp(cst_i*g*gen(i/50.0),contextptr));
       }
-      v.push_back(v.front());
+      gen v0(v.front()); v.push_back(v0);
       polygonify(v,contextptr);
       res=pnt_attrib(gen(v,_GROUP__VECT),attributs,contextptr);
     }

@@ -167,19 +167,20 @@ void latex_save_DispG(const char * filename) {
 }
 
 void a_propos() {
-  std::string s("xcas "); s+=GIAC_VERSION; s+=" (c) 2000-18, Bernard Parisse, Renee De Graeve\n";
+  std::string s("xcas "); s+=GIAC_VERSION; s+=" (c) 2000-26, Bernard Parisse, Renee De Graeve\n";
     s += "Optimization, signalprocessing, graph theory code and manuals: Luka Marohnić\n";
     s += "https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac.html\n";
     s += "If you like Xcas, please link your webpage to the above link to help other find it\n";
     s += "Software licensed under the GPL, General Public License version 3.0 or later\nSee the file COPYING in this package for more details\nOr browse http://www.gnu.org\n";
     s += "French documentation (c) Renee de Graeve\n";
     s += "This documentation is freely redistribuable for non commercial purpose\n";
+    s += "Includes proba-stats code and documentation by Hicham Ettahri\n";
     s += "Python giacpy module: Frederic Han, online help contribution Maxens Pupin\n";
     s += "Math ML and SVG support initially written by Jean-Pierre Branchard\n";
     s += "OpenOffice interface: Christophe Devalland, Serge Moutou\n";
     s += "Qcas interface: Loic Le Coq, Frederic Han\n";
     s += "R interface: Stéphane Laurent\n";
-    s += "Julia interface: Harald Hofstätter\n";
+    s += "Julia interface: Sébastien Celles, Harald Hofstätter\n";
     s += "Androcas interface: Thomas Luka\n";
     s += "SmartCAS interface: Nicolas Pujol\n";
     s += "English user guide translation maintained by Jay Belanger\n";
@@ -196,7 +197,7 @@ void a_propos() {
     s += "Thanks to the geogebra team, especially Zoltán Kovács, Michael Borcherds, Markus Hohenwater, Zbyněk Konečný\n";
     s += "Xcas early testers: Christiane Serret (lycée de Crest),\nMichèle Gandit (lycée international de Grenoble)\nStephane Lejoly, Jean-Joel Bataille, Jean-Eric Visca, Thierry Xuereb\nPaul Magnien, Denis Le Fur, Phil Pham\nSébastien Celles, Gérard Vinel, Robert Rolland, Robert Sétif\nJuan Antonio Martinez Rojas, Nicolas Rosillo (Spain)\n";
     s += "Francois Maltey (Mupacs)\nFrederic Faure, Emilien Kia, Andreas Thillosen (giac)\n";
-    s += "Francois Boisson (grace a lui Xcas est utilisable a l'agregation de maths)\n";
+    s += "Francois Boisson (grace à lui Xcas a été utilisable à l'agregation de maths)\n";
     s += "Luc Briel, Georges Dubouloz, Emmanuel Gaunard, Laurent Hofer, Yvan Duron, Martin Deraux (bugs, suggestions)...\n";
     s += "Uses GMP, (c) T. Granlund & al.\n";
   #ifdef HAVE_LIBMPFR
@@ -498,7 +499,7 @@ void Xcas_qrupdate(int i) {
           S="#";
   #endif
           if (giac::absint(i)==2) S="https://www-fourier.univ-grenoble-alpes.fr/~parisse/kcasfr.html#filename=";
-          else if (giac::absint(i)==3) S="https://xcas.univ-grenoble-alpes.fr/xcasjs/#filename=";
+          else if (giac::absint(i)==3) S="https://www-fourier.univ-grenoble-alpes.fr/~parisse/xcasjs/index.html#filename="; // S="https://xcas.univ-grenoble-alpes.fr/xcasjs/#filename=";
           else if (giac::absint(i)==4) S="https://www-fourier.univ-grenoble-alpes.fr/~parisse/xcasfr.html#filename=";
           else if (giac::absint(i)==5) S="https://www-fourier.univ-grenoble-alpes.fr/~parisse/tableaufr.html#filename=";
           string session;
@@ -1206,8 +1207,12 @@ std::string Xcas_browser_name() {
   #endif // apple
   if (getenv("BROWSER"))
     return getenv("BROWSER");
-  #ifdef WIN32 //
-    return "cygstart.exe";
+  #ifdef WIN32 
+  #ifdef __MINGW_H
+    return "firefox.exe";
+  #else
+    return  //"cygstart.exe";
+  #endif // mingw
   #endif // win32
   std::string tmp;
   //tmp="/usr/bin/xdg-open"; if (giac::is_file_available(tmp.c_str())) return tmp;
@@ -1412,7 +1417,7 @@ static void cb_Xcas_CloneOffline1(Fl_Menu_*, void*) {
 }
 
 static void cb_Xcas_CloneOnline3(Fl_Menu_*, void*) {
-  int pos=0;std::string html5="https://xcas.univ-grenoble-alpes.fr/xcasjs/#filename="+Xcas_current_session_name()+"&"+xcas::widget_html5(Xcas_current_session(),pos);
+  int pos=0;std::string html5="https://www-fourier.univ-grenoble-alpes.fr/~parisse/xcasjs/index.html#filename="+Xcas_current_session_name()+"&"+xcas::widget_html5(Xcas_current_session(),pos);
              std::cout << html5 << std::endl; 
              giac::system_browser_command(html5);
 }
@@ -1669,20 +1674,20 @@ static void cb_Xcas_nnumworks_install(Fl_Menu_*, void*) {
               };
 }
 
-static void cb_Xcas_Export_Khicas_TI83(Fl_Menu_*, void*) {
-  xcas::History_cb_Save_as_xcas_ti83(Xcas_current_session(),0);
-}
-
 static void cb_Xcas_Export_Khicas_Casio(Fl_Menu_*, void*) {
   xcas::History_cb_Save_as_xcas_casio(Xcas_current_session(),0);
 }
 
-static void cb_Xcas_Export_Khicas_Numworks(Fl_Menu_*, void*) {
-  xcas::History_cb_Save_as_xcas_numworks(Xcas_current_session(),0);
+static void cb_Xcas_Export_Khicas_TI83(Fl_Menu_*, void*) {
+  xcas::History_cb_Save_as_xcas_ti83(Xcas_current_session(),0);
 }
 
 static void cb_Xcas_Export_Khicas_Nspire(Fl_Menu_*, void*) {
   xcas::History_cb_Save_as_xcas_nspire(Xcas_current_session(),0);
+}
+
+static void cb_Xcas_Export_Khicas_Numworks(Fl_Menu_*, void*) {
+  xcas::History_cb_Save_as_xcas_numworks(Xcas_current_session(),0);
 }
 
 static void cb_Xcas_Export_nws(Fl_Menu_*, void*) {
@@ -2308,6 +2313,11 @@ static void cb_Xcas_help_Amusement(Fl_Menu_*, void*) {
          };
 }
 
+static void cb_Xcas_help_Ettahri(Fl_Menu_*, void*) {
+  if (xcas::use_external_browser)
+               giac::system_browser_command(giac::giac_aide_dir()+"doc/fr/stage_ettahri.pdf");
+}
+
 static void cb_Xcas_help_PARI(Fl_Menu_*, void*) {
   if (xcas::use_external_browser)
            giac::system_browser_command(giac::giac_aide_dir()+"doc/pari/index.html");
@@ -2730,10 +2740,10 @@ Fl_Menu_Item menu_Xcas_main_menu[] = {
  {"Install KhiCAS (long version) on calculator", 0,  (Fl_Callback*)cb_Xcas_nnumworks_install, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {0,0,0,0,0,0,0,0,0},
  {"Export as", 0,  0, 0, 64, FL_NORMAL_LABEL, 0, 14, 0},
- {"TI83/84", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_TI83, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"HP Prime, Casio", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_Casio, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
- {"KhiCas Numworks", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_Numworks, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+ {"TI83/84", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_TI83, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"KhiCas TI Nspire CX", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_Nspire, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+ {"KhiCas Numworks", 0,  (Fl_Callback*)cb_Xcas_Export_Khicas_Numworks, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"Numworks Archive", 0,  (Fl_Callback*)cb_Xcas_Export_nws, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"Xcas text", 0,  (Fl_Callback*)cb_Xcas_Export_Xcas, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"Xcas-Python text", 0,  (Fl_Callback*)cb_Xcas_Export_XcasPy, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
@@ -2847,6 +2857,7 @@ Fl_Menu_Item menu_Xcas_main_menu[] = {
  {"Turtle", 0,  (Fl_Callback*)cb_Xcas_help_Tortue, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"Exercices", 0,  (Fl_Callback*)cb_Xcas_help_Exercices, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"Amusement", 0,  (Fl_Callback*)cb_Xcas_help_Amusement, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+ {"Proba/stats (H. Ettahri)", 0,  (Fl_Callback*)cb_Xcas_help_Ettahri, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {"PARI-GP", 0,  (Fl_Callback*)cb_Xcas_help_PARI, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
  {0,0,0,0,0,0,0,0,0},
  {"Internet", 0,  0, 0, 64, FL_NORMAL_LABEL, 0, 14, 0},
@@ -4160,7 +4171,7 @@ Fl_Window* Xcas_run(int argc,char ** argv) {
     { Xcas_main_menu = new Fl_Menu_Bar(0, 0, 775, 25);
       if (!menu_Xcas_main_menu_i18n_done) {
         int i=0;
-        for ( ; i<391; i++)
+        for ( ; i<392; i++)
           if (menu_Xcas_main_menu[i].label())
             menu_Xcas_main_menu[i].label(gettext(menu_Xcas_main_menu[i].label()));
         menu_Xcas_main_menu_i18n_done = 1;

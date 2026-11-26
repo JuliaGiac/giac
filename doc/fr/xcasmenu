@@ -1298,3 +1298,50 @@ Prg/Python/graphic/draw_filled_rectangle
 Prg/Python/graphic/draw_string : chaine
 Prg/Python/time/from time import *
 Prg/Python/time/time
+Outils/Proba/RegLin/mlr: Régression linéaire multiple complète
+Outils/Proba/PCA/pca: ACP complète
+Outils/Proba/Calcul stochastique/brownian: mouvement brownien standard
+Outils/Proba/Calcul stochastique/gbm: mouvement brownien géométrique
+Outils/Proba/Calcul stochastique/ornstein_uhlenbeck: processus d'Ornstein-Uhlenbeck
+Outils/Proba/Calcul stochastique/sde_euler: EDS générale, schéma d'Euler-Maruyama
+Outils/Proba/Black-Scholes/bs_price: prix d'une option européenne
+Outils/Proba/Black-Scholes/bs_greeks: prix et les cinq Greeks
+Outils/Proba/Monte-Carlo/mc_estimate: espérance estimée d'une liste, avec IC à 95%
+Outils/Proba/Monte-Carlo/mc_mean: estimation de E[g(X)] par échantillonnage
+Outils/Proba/Estimation EDS/fit_gbm: estimation des paramètres d'un GBM (mu, sigma)
+Outils/Proba/Estimation EDS/fit_ou: estimation des paramètres d'un OU (alpha, theta, sigma)
+Cmds/Proba stats/PCA/pca_explained_ratio
+Cmds/Proba stats/PCA/cov_matrix: matrice de covariance
+Cmds/Proba stats/PCA/pca_select_q
+Cmds/Proba stats/PCA/pca_scores: matrice de dimension inferieure
+Cmds/Proba stats/PCA/pca_loadings: matrice de passage réduite
+Cmds/Proba stats/PCA/pca: ACP complète
+Cmds/Proba stats/RegLin/mlr_beta: les p+1 coefficients estimés
+Cmds/Proba stats/RegLin/mlr_predict: le vecteur des valeurs prédites
+Cmds/Proba stats/RegLin/mlr_residuals: le vecteur des résidus
+Cmds/Proba stats/RegLin/mlr_r2: le coefficient de détermination
+Cmds/Proba stats/RegLin/mlr_sigma2: la variance résiduelle sans biais
+Cmds/Proba stats/RegLin/mlr_mse: l’erreur quadratique moyenne
+Cmds/Proba stats/RegLin/mlr_ic: les intervalles de confiance à 95% sur chaque beta_i
+Cmds/Proba stats/RegLin/mlr: Régression linéaire multiple complète
+Cmds/Proba stats/Calcul stochastique/brownian: mouvement brownien standard
+Cmds/Proba stats/Calcul stochastique/gbm: mouvement brownien géométrique
+Cmds/Proba stats/Calcul stochastique/ornstein_uhlenbeck: processus d'Ornstein-Uhlenbeck (Vasicek)
+Cmds/Proba stats/Calcul stochastique/cir: processus de Cox-Ingersoll-Ross
+Cmds/Proba stats/Calcul stochastique/sde_euler: EDS générale, schéma d'Euler-Maruyama
+Cmds/Proba stats/Calcul stochastique/sde_milstein: EDS générale, schéma de Milstein
+Cmds/Proba stats/Black-Scholes/bs_price: prix d'une option européenne
+Cmds/Proba stats/Black-Scholes/bs_delta: delta, sensibilité au sous-jacent (dC/dS)
+Cmds/Proba stats/Black-Scholes/bs_gamma: gamma, convexité (d2C/dS2)
+Cmds/Proba stats/Black-Scholes/bs_vega: vega, sensibilité à la volatilité (dC/dsigma)
+Cmds/Proba stats/Black-Scholes/bs_theta: theta, décroissance temporelle (dC/dt)
+Cmds/Proba stats/Black-Scholes/bs_rho: rho, sensibilité au taux (dC/dr)
+Cmds/Proba stats/Black-Scholes/bs_greeks: prix et les cinq Greeks
+Cmds/Proba stats/Black-Scholes/bs_implied_vol: volatilité implicite
+Cmds/Proba stats/Monte-Carlo/mc_estimate: espérance estimée d'une liste, avec IC à 95%
+Cmds/Proba stats/Monte-Carlo/mc_mean: estimation de E[g(X)] par échantillonnage
+Cmds/Proba stats/Monte-Carlo/mc_bs_price: prix d'option européenne par Monte-Carlo
+Cmds/Proba stats/Monte-Carlo/mc_mean_antithetic: E[g(Z)] par variables antithétiques
+Cmds/Proba stats/Monte-Carlo/mc_bs_price_antithetic: prix d'option, Monte-Carlo antithétique
+Cmds/Proba stats/Estimation EDS/fit_gbm: estimation des paramètres d'un GBM (mu, sigma)
+Cmds/Proba stats/Estimation EDS/fit_ou: estimation des paramètres d'un OU (alpha, theta, sigma)

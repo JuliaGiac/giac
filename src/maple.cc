@@ -1342,6 +1342,31 @@ namespace giac {
   static define_unary_function_eval (___count_inf,&_count_inf,_count_inf_s);
   define_unary_function_ptr5( at_count_inf ,alias_at_count_inf,&___count_inf,0,true);
 
+  // trunc cuts toward zero, so it needs the sign of its argument. Giac floored any argument
+  // whose sign it cannot prove (a free name: trunc(x) became floor(x), -2 at x = -13/10, right -1), and trunc(x,n)
+  // returned floor(10^n*x)/10^n for either sign (trunc(-27/20,1) = -1.4, right -1.3). Now x >= 0 proven gives floor(x),
+  // x < 0 proven -floor(-x), a complex number each part so, and anything else stays trunc(...) unevaluated.
+  extern const unary_function_ptr * const at_trunc;
+  static bool trunc_decided(const gen & x,gen & res,GIAC_CONTEXT){
+    // a complex number (-3/2-5/2*i is a _FRAC of a _CPLX): each part toward zero, as iPart does
+    if (x.type==_CPLX || (x.type==_FRAC && x._FRACptr->num.type==_CPLX)){
+      gen a,b;
+      if (!trunc_decided(re(x,contextptr),a,contextptr) || !trunc_decided(im(x,contextptr),b,contextptr))
+        return false;
+      res=a+cst_i*b;
+      return true;
+    }
+    if (is_undef(x) || is_inf(x) || is_positive(x,contextptr)){
+      res=_floor(x,contextptr);
+      return true;
+    }
+    if (is_strictly_positive(-x,contextptr)){
+      res=-_floor(-x,contextptr);
+      return true;
+    }
+    return false;
+  }
+
   gen _trunc(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     if (is_equal(args))
@@ -1366,7 +1391,10 @@ namespace giac {
 #else
 	double d=std::pow(10.0,double(b.val));
 #endif
-	return _floor(d*args._VECTptr->front(),contextptr)/d;
+	gen dx=d*args._VECTptr->front(),res;
+	if (!trunc_decided(dx,res,contextptr))
+	  return symbolic(at_trunc,args);
+	return res/d;
       }
       if (args.subtype==_SEQ__VECT && args._VECTptr->size()==2 && args._VECTptr->front().type==_INT_){
 	if (args._VECTptr->front().val)
@@ -1375,12 +1403,20 @@ namespace giac {
       }
       return apply(args,contextptr,_trunc);
     }
-    if (is_strictly_positive(-args,contextptr))
-      return -_floor(-args,contextptr);
-    return _floor(args,contextptr);
+    gen res;
+    if (!trunc_decided(args,res,contextptr))
+      return symbolic(at_trunc,args);
+    return res;
   }
+  // trunc(x) now stays trunc(x) where floor(x) was returned, so it needs floor's derivative, 0
+  // (diff(floor(x),x) = 0)
+  define_partial_derivative_onearg_genop( D_at_trunc,"D_at_trunc",_constant_zero);
   static const char _trunc_s []="trunc";
-  static define_unary_function_eval (___trunc,&_trunc,_trunc_s);
+#ifdef GIAC_HAS_STO_38
+  static define_unary_function_eval3 (___trunc,&_trunc,(size_t)&D_at_truncunary_function_ptr,_trunc_s);
+#else
+  static define_unary_function_eval3 (___trunc,&_trunc,D_at_trunc,_trunc_s);
+#endif
   define_unary_function_ptr5( at_trunc ,alias_at_trunc,&___trunc,0,true);
 
   static const char _giac_s []="giac";
@@ -1490,7 +1526,7 @@ namespace giac {
     vecteur & v=*g._VECTptr;
     int s=int(v.size());
     FILE * f=0;
-#if !defined(BESTA_OS) && !defined(NSPIRE) && !defined(FXCG) && !defined(HP39)
+#if !defined(BESTA_OS) && !defined(FREERTOS) && !defined(NSPIRE) && !defined(FXCG) && !defined(HP39)
     if (v[0].type==_INT_ && v[0].subtype==_INT_FD)
       f= fdopen(v[0].val,"a");
 #endif    
@@ -1522,7 +1558,7 @@ namespace giac {
   gen _close(const gen & g0,GIAC_CONTEXT){
     gen g=eval(g0,1,contextptr);
     if ( g.type==_STRNG && g.subtype==-1) return  g;
-#if !defined(VISUALC) && !defined(BESTA_OS) && !defined(__MINGW_H) && !defined(NSPIRE) && !defined(FXCG)  && !defined(HP39)
+#if !defined(VISUALC) && !defined(BESTA_OS) && !defined(FREERTOS) && !defined(__MINGW_H) && !defined(NSPIRE) && !defined(FXCG)  && !defined(HP39)
     if (g.type==_INT_ && g.subtype==_INT_FD){
       purgenoassume(g0,contextptr);
       close(g.val);
@@ -1666,7 +1702,7 @@ namespace giac {
       control_c();
 #endif
       if (ctrl_c || interrupted)
-	return gensizeerr(gettext("Stopped by user interruption."));
+	return gen_oom(); // gensizeerr(gettext("Stopped by user interruption."));
       vecteur v(s+1);
       v[i]=x;
       if (i<s)
@@ -1955,13 +1991,13 @@ namespace giac {
       return _lagrange(g,contextptr);
     // fast spline interpolation (uses GSL)
     if (args.size()>1 && ckmatrix(a) && b.type==_VECT && mrows(*a._VECTptr)==2 && is_approx(a)) {
-      matrice A=*evalf_double(a,1,contextptr)._VECTptr;
-      vecteur B=*evalf_double(b,1,contextptr)._VECTptr;
+      matrice A=gen2vecteur(evalf_double(a,1,contextptr));
+      vecteur B=gen2vecteur(evalf_double(b,1,contextptr));
       return fast_spline_interp(*A[0]._VECTptr,*A[1]._VECTptr,B,vecteur(args.begin()+2,args.end()),contextptr);
     }
     if (args.size()>2 && a.type==_VECT && b.type==_VECT && args[2].type==_VECT)
-      return fast_spline_interp(*evalf_double(a,1,contextptr)._VECTptr,*evalf_double(b,1,contextptr)._VECTptr,
-                                *evalf_double(args[2],1,contextptr)._VECTptr,vecteur(args.begin()+3,args.end()),contextptr);
+      return fast_spline_interp(gen2vecteur(evalf_double(a,1,contextptr)),gen2vecteur(evalf_double(b,1,contextptr)),
+                                gen2vecteur(evalf_double(args[2],1,contextptr)),vecteur(args.begin()+3,args.end()),contextptr);
     // color interpolation
     if (a.is_integer() && a.subtype==_INT_COLOR) {
       if (args.size()!=3)
@@ -3432,7 +3468,7 @@ namespace giac {
     if (!is_zero(derive(m,n,contextptr)))
       return symbolic(at_seqsolve,args);
     if (has_num_coeff(m))
-      m=*evalf(m,1,contextptr)._VECTptr;
+      m=gen2vecteur(evalf(m,1,contextptr));
     matrice P,Pinv,D;
     bool b=complex_mode(contextptr);
     complex_mode(true,contextptr);

@@ -39,7 +39,7 @@
 #endif
 #endif
 #if defined(HAVE_LIBGL) && defined(HAVE_LIBFLTK_GL)
-
+typedef unsigned char byte;
 #include "gl2ps.h"
 
 #include <math.h>

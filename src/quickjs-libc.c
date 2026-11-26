@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #if defined(_WIN32)
+typedef unsigned char byte;
 #include <windows.h>
 #include <conio.h>
 #include <utime.h>

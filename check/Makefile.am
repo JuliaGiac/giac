@@ -5,7 +5,8 @@ TESTS = 	chk_integrate  \
 		chk_fhan6 chk_fhan8 chk_fhan0 \
 		chk_fhan11 chk_fhan12 chk_fhan13 chk_fhan14 chk_fhan15 \
 		chk_fhan16 chk_fhan17 chk_fhan19 chk_fhan20 \
-		chk_fhan21 chk_fhan9 chk_fhan18 chk_fhan7
+		chk_fhan21 chk_fhan9 chk_fhan18 chk_fhan7 \
+		chk_proba
 EXTRA_DIST = 	readme.txt chk_integrate chk_intinda chk_intindbo chk_intindbr \
 		chk_intindc chk_intindj chk_intindm \
 		chk_intindh chk_intinds chk_intindt chk_intindw \
@@ -27,5 +28,7 @@ EXTRA_DIST = 	readme.txt chk_integrate chk_intinda chk_intindbo chk_intindbr \
 		chk_indep chk_exp chk_log chk_trig chk_invtrig \
 		chk_alg chk_hyp chk_invhyp chk_spec chk_misc \
 		indep/* exp/* log/* trig/* invtrig/* \
-		alg/* hyp/* invhyp/* spec/* misc/*
+		alg/* hyp/* invhyp/* spec/* misc/* \
+		chk_proba testproba proba.out \
+		pascaline*cas 
 TESTS_ENVIRONMENT = top_srcdir=$(top_srcdir)
