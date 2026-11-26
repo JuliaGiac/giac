@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the site's own home page.
 
 ### Fixed
+- **The same integral is right on every call again.** The gen type was
+  stored on 8 bits (`GIAC_TYPE_ON_8BITS`, commit 64fdcef) to work around a
+  Windows ABI mismatch between GIAC_jll and libgiac_julia_jll. That broke
+  exact results on every platform: `integrate(1/(1-x^4+x^8),x)` was right on
+  the first call and returned a wrong antiderivative on every later call
+  (CASbench case F 14). The type is back on 5 bits, as upstream, which also
+  gives doubles stored inside a gen back 3 mantissa bits (48 instead of 45).
+  Regression test: `tests/test_integrate_repeat.cc`. The Windows ABI mismatch
+  comes back and is to be fixed where it arises (same compiler for both
+  libraries, or not reading the bitfield from the wrapper).
 - A `limit` or `series` that fails with an error no longer leaves bit 3 of
   `series_flags` set for the rest of the session
   ([JuliaGiac/giac#4](https://github.com/JuliaGiac/giac/issues/4)). Both
