@@ -62,11 +62,13 @@
 builddir/
 cross/local/
 
-# giac-wasm (npm/): build outputs, the copy of COPYING, packed tarballs
+# giac-wasm (npm/): build outputs, the copy of COPYING, packed archives
 npm/dist/
 npm/node_modules/
 npm/LICENSE
 npm/*.tgz
+npm/*.zip
+npm/SHA256SUMS
 
 # Hugo build outputs (web site in site/)
 site/public/

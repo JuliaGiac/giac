@@ -375,8 +375,16 @@ activated:
 source /path/to/emsdk/emsdk_env.sh
 just wasm        # GMP, MPFR, libgiac and the module, into npm/dist/
 just wasm-test   # the package's tests, with Node.js (18 or later)
-just wasm-pack   # npm/giac-wasm-<version>.tgz, to publish with npm publish
+just wasm-pack   # npm/giac-wasm-<version>.tgz and .zip
 ```
+
+A release: set `version` in `npm/package.json`, note it in `CHANGELOG.md`,
+then push a tag `giac-wasm-v<version>`. The workflow `wasm-release.yml`
+builds and tests the package, and publishes a GitHub Release with the
+tarball (installable with `npm install <its URL>`, without the registry), the
+zip and their SHA-256 sums. JuliaGiac/giac-wasm then serves it on its GitHub
+Pages. Publishing to the npm registry is a separate, manual step: `npm
+publish` from `npm/`.
 
 `just wasm` runs `npm/scripts/build.sh`:
 

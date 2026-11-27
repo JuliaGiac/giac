@@ -19,6 +19,38 @@ giac.eval('latex(x^2/2)');             // '"\\frac{x^{2}}{2}"'
 giac.eval('plot(sin(x),x)');           // an SVG image, as a GIAC string
 ```
 
+## Installing
+
+From the npm registry:
+
+```bash
+npm install giac-wasm
+```
+
+Without it, from a [GitHub Release](https://github.com/JuliaGiac/giac/releases)
+of the giac repository (tags `giac-wasm-vX.Y.Z`), which has the npm tarball and
+a zip of the same files:
+
+```bash
+npm install https://github.com/JuliaGiac/giac/releases/download/giac-wasm-v0.1.0/giac-wasm-0.1.0.tgz
+```
+
+In a page, without installing anything, from
+[JuliaGiac/giac-wasm](https://juliagiac.github.io/giac-wasm/), which serves
+every release (with CORS, and `giac.wasm` as `application/wasm`):
+
+```html
+<script type="module">
+  import { loadGiac } from 'https://juliagiac.github.io/giac-wasm/0.1.0/src/index.mjs';
+  const giac = await loadGiac();
+  console.log(giac.eval('factor(x^4-1)'));
+</script>
+```
+
+Or unzip `giac-wasm-X.Y.Z.zip` on your own server and import its
+`src/index.mjs`: `giac.wasm` is found next to `dist/giac.mjs`. The server must
+send `.wasm` files as `application/wasm`.
+
 ## API
 
 ### `loadGiac(options?)`
@@ -109,7 +141,7 @@ activated:
 source /path/to/emsdk/emsdk_env.sh
 just wasm        # GMP, MPFR, libgiac and the module, into npm/dist/
 just wasm-test   # the tests, with Node.js
-just wasm-pack   # npm/giac-wasm-<version>.tgz
+just wasm-pack   # npm/giac-wasm-<version>.tgz and .zip
 ```
 
 See `BUILDING.md` for details.

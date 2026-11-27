@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4.2.2, no other optional library), tested by `just wasm-test` and in CI
   (job "WebAssembly"), packed by `just wasm-pack`: 3.3 MB, 9.4 MB unpacked.
   2D plots come back as SVG; 3D plots are not supported.
+- **giac-wasm releases**: a tag `giac-wasm-vX.Y.Z` builds, tests and publishes
+  a GitHub Release with the npm tarball (installable by URL, without the npm
+  registry), a zip of the same files and their SHA-256 sums
+  (`wasm-release.yml`; `just wasm-pack` makes both archives).
 
 ### Fixed
 - **The Emscripten build** (`cross/emscripten-wasm32.ini`) compiles and

@@ -113,6 +113,6 @@ wasm:
 wasm-test:
     cd npm && node --test test/*.test.mjs
 
-# Pack giac-wasm into npm/giac-wasm-<version>.tgz
+# Pack giac-wasm into npm/giac-wasm-<version>.tgz and .zip
 wasm-pack: wasm-test
-    cd npm && npm pack
+    cd npm && npm pack && scripts/pack-zip.sh
