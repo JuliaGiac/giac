@@ -36,12 +36,12 @@ npm install https://github.com/JuliaGiac/giac/releases/download/giac-wasm-v0.1.0
 ```
 
 In a page, without installing anything, from
-[JuliaGiac/giac-wasm](https://juliagiac.github.io/giac-wasm/), which serves
+[s-celles/giac-wasm](https://s-celles.github.io/giac-wasm/), which serves
 every release (with CORS, and `giac.wasm` as `application/wasm`):
 
 ```html
 <script type="module">
-  import { loadGiac } from 'https://juliagiac.github.io/giac-wasm/0.1.0/src/index.mjs';
+  import { loadGiac } from 'https://s-celles.github.io/giac-wasm/0.1.0/src/index.mjs';
   const giac = await loadGiac();
   console.log(giac.eval('factor(x^4-1)'));
 </script>
