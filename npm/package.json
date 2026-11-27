@@ -1,6 +1,6 @@
 {
   "name": "giac-wasm",
-  "version": "0.1.0",
+  "version": "200.100.0",
   "description": "The Giac computer algebra system compiled to WebAssembly, for browsers, Web Workers and Node.js",
   "type": "module",
   "exports": {

@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4.2.2, no other optional library), tested by `just wasm-test` and in CI
   (job "WebAssembly"), packed by `just wasm-pack`: 3.3 MB, 9.4 MB unpacked.
   2D plots come back as SVG; 3D plots are not supported.
+  Its version encodes GIAC's, as GIAC_jll's does: giac-wasm 200.100.0 is GIAC
+  2.1.0, and 200.100.1, 200.100.2… are rebuilds of the same GIAC (a test
+  checks `npm/package.json` against the GIAC built).
 - **giac-wasm releases**: a tag `giac-wasm-vX.Y.Z` builds, tests and publishes
   a GitHub Release with the npm tarball (installable by URL, without the npm
   registry), a zip of the same files and their SHA-256 sums
