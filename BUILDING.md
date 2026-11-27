@@ -382,7 +382,7 @@ A release: set `version` in `npm/package.json`, note it in `CHANGELOG.md`,
 then push a tag `giac-wasm-v<version>`. The workflow `wasm-release.yml`
 builds and tests the package, and publishes a GitHub Release with the
 tarball (installable with `npm install <its URL>`, without the registry), the
-zip and their SHA-256 sums. JuliaGiac/giac-wasm then serves it on its GitHub
+zip and their SHA-256 sums. s-celles/giac-wasm then serves it on its GitHub
 Pages. Publishing to the npm registry is a separate, manual step: `npm
 publish` from `npm/`.
 
