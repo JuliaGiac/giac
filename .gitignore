@@ -53,12 +53,20 @@
 !.github/**
 !site/
 !site/**
+!npm/
+!npm/**
 
 # -----------------------------------------------------------------------------
 # Meson build outputs (always ignore)
 # -----------------------------------------------------------------------------
 builddir/
 cross/local/
+
+# giac-wasm (npm/): build outputs, the copy of COPYING, packed tarballs
+npm/dist/
+npm/node_modules/
+npm/LICENSE
+npm/*.tgz
 
 # Hugo build outputs (web site in site/)
 site/public/

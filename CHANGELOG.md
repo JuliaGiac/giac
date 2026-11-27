@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **giac-wasm, an npm package of Giac compiled to WebAssembly** (`npm/`),
+  for browsers, Web Workers and Node.js, with nothing to compile at install:
+  `loadGiac()` resolves to a session with `eval(input)` (the result as text,
+  a `GiacError` on a GIAC error), `evalWithMessages(input)` (GIAC's
+  messages apart from the result), `setTimeout(seconds)` (GIAC's time
+  limit, 15 s by default) and `version`; TypeScript types included. Built
+  with the Meson build and Emscripten by `just wasm` (GMP 6.3.0 and MPFR
+  4.2.2, no other optional library), tested by `just wasm-test` and in CI
+  (job "WebAssembly"), packed by `just wasm-pack`: 3.3 MB, 9.4 MB unpacked.
+  2D plots come back as SVG; 3D plots are not supported.
+
 ### Fixed
+- **The Emscripten build** (`cross/emscripten-wasm32.ini`) compiles and
+  links. Under Emscripten libgiac is static only, without pthreads and with
+  `HAVE_PTHREAD_H` undefined (`src/global.cc` declares `fork_mutex` under
+  `HAVE_LIBPTHREAD` but locks it under `HAVE_PTHREAD_H`), and
+  `src/emscripten_stubs.cc` defines `gettext`, `giac_gen_renderer` and
+  `sigsuspend`, which the `EMCC2` sources expect from the Xcas web renderer
+  and from libc. `src/graphe.cc` includes `<iterator>` for `std::inserter`
+  (libc++ does not bring it in). The `EMCC2` code of `src/gen.cc` (SVG width)
+  and `src/mathml.cc` no longer reads `window` where there is none (Node.js,
+  Web Workers).
 - Builds against PARI 2.19: `src/optimization.cc` writes `std::bitset`, since
   PARI 2.19's `paridecl.h` declares a C function `bitset(GEN, long)` that made
   the unqualified `bitset<32>` ambiguous under `using namespace std`.

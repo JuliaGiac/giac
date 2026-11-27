@@ -48,6 +48,20 @@ Prerequisites, build options and per-platform notes are in
 Problems with the Meson build go to the
 [issue tracker](https://github.com/JuliaGiac/giac/issues).
 
+## In browsers and Node.js
+
+The same build compiles libgiac to WebAssembly with
+[Emscripten](https://emscripten.org/):
+[giac-wasm](https://github.com/JuliaGiac/giac/tree/dev/npm) is an npm package
+of Giac for browsers, Web Workers and Node.js, with nothing to compile at
+install.
+
+```js
+import { loadGiac } from 'giac-wasm';
+const giac = await loadGiac();
+giac.eval('factor(x^4-1)');   // '(x-1)*(x+1)*(x^2+1)'
+```
+
 ## Part of JuliaGiac
 
 This repository is one layer of [JuliaGiac](https://juliagiac.github.io/),

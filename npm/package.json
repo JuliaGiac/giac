@@ -1,0 +1,53 @@
+{
+  "name": "giac-wasm",
+  "version": "0.1.0",
+  "description": "The Giac computer algebra system compiled to WebAssembly, for browsers, Web Workers and Node.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./giac.wasm": "./dist/giac.wasm"
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "src/index.mjs",
+    "dist/giac.mjs",
+    "dist/giac.wasm",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "GPL-3.0-or-later",
+  "contributors": [
+    "Bernard Parisse (Giac)",
+    "Renée De Graeve (Giac)",
+    "Sébastien Celles (JuliaGiac fork, packaging)"
+  ],
+  "homepage": "https://github.com/JuliaGiac/giac/tree/dev/npm#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JuliaGiac/giac.git",
+    "directory": "npm"
+  },
+  "bugs": {
+    "url": "https://github.com/JuliaGiac/giac/issues"
+  },
+  "keywords": [
+    "giac",
+    "xcas",
+    "computer algebra",
+    "cas",
+    "symbolic",
+    "mathematics",
+    "webassembly",
+    "wasm"
+  ]
+}
