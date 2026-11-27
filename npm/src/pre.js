@@ -6,5 +6,16 @@
 // - add_evalf: 0, results are not followed by "=" and their approximation;
 // - disable3d: -1, a 3D plot answers "gl3d_not_supported" (no WebGL renderer);
 // - js_bigint: 0, integers come back as text;
-// - Datestart: the origin of GIAC's millisecond clock.
-var UI = { add_evalf: 0, disable3d: -1, js_bigint: 0, Datestart: Date.now() };
+// - Datestart: the origin of GIAC's millisecond clock;
+// - sheet_set_ij, sheet_recompute, open_sheet: the spreadsheet of Xcas for the
+//   web, which current_sheet fills; there is none here, so they do nothing
+//   (a JavaScript exception would cross the WebAssembly frames).
+var UI = {
+  add_evalf: 0,
+  disable3d: -1,
+  js_bigint: 0,
+  Datestart: Date.now(),
+  sheet_set_ij: function () {},
+  sheet_recompute: function () {},
+  open_sheet: function () {},
+};

@@ -92,3 +92,9 @@ test('the input must be a string, and not one of caseval\'s control words', () =
   assert.throws(() => giac.eval('caseval contextptr'), TypeError);
   assert.throws(() => giac.eval('timeout 3'), TypeError);
 });
+
+test('the spreadsheet hooks of Xcas for the web are not needed', () => {
+  // current_sheet calls UI.sheet_set_ij, UI.sheet_recompute and UI.open_sheet
+  assert.doesNotThrow(() => giac.eval('current_sheet([[1,2],[3,4]])'));
+  assert.equal(giac.eval('1+1'), '2');
+});
