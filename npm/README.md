@@ -6,7 +6,8 @@ computation in browsers, Web Workers and Node.js, with nothing to compile at
 install.
 
 It is built from the [JuliaGiac fork of Giac](https://github.com/JuliaGiac/giac)
-with its Meson build and Emscripten. It bundles Giac 2.1.0 with GMP and MPFR.
+with its Meson build and Emscripten. It bundles Giac 2.1.0 with GMP and MPFR; its version, 200.100.0, encodes
+Giac's (see [Versions](#versions)).
 
 ```js
 import { loadGiac } from 'giac-wasm';
@@ -32,7 +33,7 @@ of the giac repository (tags `giac-wasm-vX.Y.Z`), which has the npm tarball and
 a zip of the same files:
 
 ```bash
-npm install https://github.com/JuliaGiac/giac/releases/download/giac-wasm-v0.1.0/giac-wasm-0.1.0.tgz
+npm install https://github.com/JuliaGiac/giac/releases/download/giac-wasm-v200.100.0/giac-wasm-200.100.0.tgz
 ```
 
 In a page, without installing anything, from
@@ -41,7 +42,7 @@ every release (with CORS, and `giac.wasm` as `application/wasm`):
 
 ```html
 <script type="module">
-  import { loadGiac } from 'https://s-celles.github.io/giac-wasm/0.1.0/src/index.mjs';
+  import { loadGiac } from 'https://s-celles.github.io/giac-wasm/200.100.0/src/index.mjs';
   const giac = await loadGiac();
   console.log(giac.eval('factor(x^4-1)'));
 </script>
@@ -50,6 +51,15 @@ every release (with CORS, and `giac.wasm` as `application/wasm`):
 Or unzip `giac-wasm-X.Y.Z.zip` on your own server and import its
 `src/index.mjs`: `giac.wasm` is found next to `dist/giac.mjs`. The server must
 send `.wasm` files as `application/wasm`.
+
+## Versions
+
+giac-wasm X00.Y00.Z00 is Giac X.Y.Z, as for GIAC_jll: giac-wasm 200.100.0
+bundles Giac 2.1.0. The last two digits count the builds of the same Giac
+(200.100.1, 200.100.2, …: build or JavaScript fixes), so Giac 2.1.1 will be
+200.100.100. `giac.version` gives the version of Giac itself. The major
+version follows Giac, so a change to the JavaScript API is announced in the
+changelog, not by the version number.
 
 ## API
 

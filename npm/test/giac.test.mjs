@@ -2,11 +2,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadGiac, GiacError } from '../src/index.mjs';
+import { readFileSync } from 'node:fs';
 
 const giac = await loadGiac();
 
 test('the module loads and reports the GIAC version', () => {
   assert.match(giac.version, /^\d+\.\d+\.\d+$/);
+});
+
+test('the package version encodes the GIAC version, times 100', () => {
+  // GIAC X.Y.Z is giac-wasm X00.Y00.(Z00 + build), as GIAC_jll: 2.1.0 is 200.100.0,
+  // and 200.100.1, 200.100.2... are rebuilds of the same GIAC
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const [major, minor, patch] = pkg.version.split('.').map(Number);
+  const [x, y, z] = giac.version.split('.').map(Number);
+  assert.deepEqual([major, minor, Math.floor(patch / 100)], [100 * x, 100 * y, z]);
 });
 
 test('eval returns the result as text', () => {
