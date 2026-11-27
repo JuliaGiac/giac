@@ -364,13 +364,56 @@ meson setup builddir-win --cross-file cross/windows-mingw64.ini
 meson compile -C builddir-win
 ```
 
-### WebAssembly (Emscripten)
+### WebAssembly (Emscripten) and the giac-wasm npm package
+
+`npm/` is giac-wasm, an npm package of libgiac compiled to WebAssembly for
+browsers, Web Workers and Node.js (see `npm/README.md`). With
+[emsdk](https://emscripten.org/docs/getting_started/downloads.html)
+activated:
 
 ```bash
 source /path/to/emsdk/emsdk_env.sh
-meson setup builddir-wasm --cross-file cross/emscripten-wasm32.ini
-meson compile -C builddir-wasm
+just wasm        # GMP, MPFR, libgiac and the module, into npm/dist/
+just wasm-test   # the package's tests, with Node.js (18 or later)
+just wasm-pack   # npm/giac-wasm-<version>.tgz and .zip
 ```
+
+A release: set `version` in `npm/package.json`, note it in `CHANGELOG.md`,
+then push a tag `giac-wasm-v<version>`. The workflow `wasm-release.yml`
+builds and tests the package, and publishes a GitHub Release with the
+tarball (installable with `npm install <its URL>`, without the registry), the
+zip and their SHA-256 sums. JuliaGiac/giac-wasm then serves it on its GitHub
+Pages. Publishing to the npm registry is a separate, manual step: `npm
+publish` from `npm/`.
+
+`just wasm` runs `npm/scripts/build.sh`:
+
+1. It builds GMP 6.3.0 and MPFR 4.2.2 for wasm32 (static, `-Oz
+   -fwasm-exceptions`, tarballs checked by SHA-256) into
+   `builddir-wasm-deps/prefix`, once.
+2. It configures `builddir-wasm` with `cross/emscripten-wasm32.ini` and a
+   second cross file pointing pkg-config at those libraries, every optional
+   library off (`--buildtype=minsize`).
+3. It links `npm/giac.mjs` and `giac.wasm` (target in `npm/meson.build`),
+   which export GIAC's `caseval`, and copies them to `npm/dist/`.
+
+`BUILD_DIR`, `DEPS_DIR` and `JOBS` override the directories and the number
+of jobs.
+
+What the Meson build does differently under Emscripten:
+
+- libgiac is a static library only: `ld.wasm` links no shared library.
+- No pthreads, and `HAVE_PTHREAD_H` stays undefined: wasm threads need
+  SharedArrayBuffer, so cross-origin isolation in every page that loads
+  giac; and the sources declare their mutexes under `HAVE_LIBPTHREAD` while
+  using some under `HAVE_PTHREAD_H`.
+- `src/emscripten_stubs.cc` defines what the `EMCC2` sources expect from the
+  WebGL renderer of Xcas for the web (`opengl.cc`, not built: `gettext`,
+  `giac_gen_renderer`) and from libc (`sigsuspend`).
+
+`npm/src/pre.js` gives the `EMCC2` code the `UI` object it reads from Xcas for
+the web, local to the module: results come without an appended
+approximation, and a 3D plot answers that it is not supported.
 
 ### Linux ARM
 

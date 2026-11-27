@@ -104,3 +104,15 @@ site-serve:
 # Build the web site into site/public/, failing on any warning
 site-build:
     env -u GODEBUG hugo --source site --gc --minify --panicOnWarning
+
+# Build giac-wasm, the npm package, into npm/dist/ (needs emsdk activated)
+wasm:
+    npm/scripts/build.sh
+
+# Test giac-wasm with Node.js
+wasm-test:
+    cd npm && node --test test/*.test.mjs
+
+# Pack giac-wasm into npm/giac-wasm-<version>.tgz and .zip
+wasm-pack: wasm-test
+    cd npm && npm pack && scripts/pack-zip.sh

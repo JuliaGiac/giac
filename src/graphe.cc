@@ -26,6 +26,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <ctime>
+#include <iterator>
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef HAVE_LIBNAUTY

@@ -110,3 +110,51 @@ jobs:
         with:
           name: test-logs-${{ matrix.os }}
           path: builddir/meson-logs/testlog.txt
+
+  # giac-wasm, the npm package (npm/): libgiac compiled with Emscripten, then
+  # the package's tests with Node.js and the tarball as an artifact
+  wasm:
+    name: WebAssembly (giac-wasm)
+    runs-on: ubuntu-24.04
+    env:
+      EMSDK_VERSION: 7.0.1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config
+
+      - uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # GMP and MPFR for wasm32 take minutes; they change only with the
+      # script or the Emscripten version
+      - name: Cache GMP and MPFR for wasm32
+        uses: actions/cache@v6
+        with:
+          path: builddir-wasm-deps/prefix
+          key: wasm-deps-${{ env.EMSDK_VERSION }}-${{ hashFiles('npm/scripts/build.sh') }}
+
+      - name: Build
+        run: npm/scripts/build.sh
+
+      - name: Test
+        working-directory: npm
+        run: node --test test/*.test.mjs
+
+      - name: Pack
+        working-directory: npm
+        run: npm pack
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: giac-wasm
+          path: npm/giac-wasm-*.tgz
