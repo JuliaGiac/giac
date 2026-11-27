@@ -45,6 +45,11 @@ giac_core_sources = files(
 
 giac_sources = [parser_cc, lexer_cc] + giac_core_sources
 
+# Emscripten: what the EMCC2 sources expect from the WebGL renderer and libc
+if host_machine.system() == 'emscripten'
+  giac_sources += files('emscripten_stubs.cc')
+endif
+
 # Conditional: CoCoA support files (use .C extension, only needed with CoCoA)
 if cocoa_dep.found()
   giac_sources += files('TmpLESystemSolver.C', 'TmpFGLM.C')
@@ -73,16 +78,22 @@ giac_inc = include_directories('.')
 
 giac_deps = [mpfr_dep, gmp_dep] + optional_deps
 
-libgiac = both_libraries('giac',
-  giac_sources,
-  include_directories: [giac_inc, config_inc],
-  dependencies: giac_deps,
-  c_args: giac_common_args,
-  cpp_args: giac_common_args,
-  install: true,
-  version: '0.0.0',
-  soversion: '0',
-)
+_giac_lib_args = {
+  'include_directories': [giac_inc, config_inc],
+  'dependencies': giac_deps,
+  'c_args': giac_common_args,
+  'cpp_args': giac_common_args,
+  'install': true,
+}
+if host_machine.system() == 'emscripten'
+  # ld.wasm links no shared library: under Emscripten libgiac is static only
+  libgiac = static_library('giac', giac_sources, kwargs: _giac_lib_args)
+else
+  libgiac = both_libraries('giac', giac_sources, kwargs: _giac_lib_args,
+    version: '0.0.0',
+    soversion: '0',
+  )
+endif
 
 libgiac_dep = declare_dependency(
   link_with: libgiac,

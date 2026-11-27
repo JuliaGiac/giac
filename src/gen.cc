@@ -13661,9 +13661,11 @@ void sprint_double(char * s,double d){
     double gratio=0.6,gwidth=9;
 #ifndef GIAC_GGB
     gwidth=EM_ASM_DOUBLE_V({
-	var hw=window.innerWidth;
 	if (typeof(svgwidth)!="undefined")
 	  return svgwidth*1.0;
+	if (typeof(window)=="undefined") // Node.js or a Web Worker
+	  return 9.0;
+	var hw=window.innerWidth;
 	if (hw>=1000)
 	  return 9.0*hw/1000.0;
 	else

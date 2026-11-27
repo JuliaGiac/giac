@@ -63,6 +63,12 @@ foreach h : [
   'readline/readline.h', 'readline/history.h',
 ]
   varname = 'HAVE_' + h.underscorify().to_upper()
+  # Emscripten has pthread.h but giac is built without threads there; the
+  # sources declare their mutexes under HAVE_LIBPTHREAD and use some of them
+  # under HAVE_PTHREAD_H, so define neither
+  if h == 'pthread.h' and host_machine.system() == 'emscripten'
+    continue
+  endif
   if cc.has_header(h)
     cdata.set(varname, 1)
   endif
@@ -367,7 +373,9 @@ if dl_dep.found()
 endif
 
 # pthread
-thread_dep = dependency('threads', required: false)
+# Not under Emscripten: wasm threads need SharedArrayBuffer, so cross-origin
+# isolation in every page that loads giac
+thread_dep = host_machine.system() == 'emscripten' ? dependency('', required: false) : dependency('threads', required: false)
 if thread_dep.found()
   optional_deps += thread_dep
 endif
@@ -488,6 +496,10 @@ summary({
 
 subdir('src')
 subdir('tests')
+# giac-wasm, the npm package: libgiac linked into an ES module
+if host_machine.system() == 'emscripten'
+  subdir('npm')
+endif
 
 # ── pkg-config file (after src/ so libgiac is defined) ───────────────────────
 
