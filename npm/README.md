@@ -152,6 +152,49 @@ Content Security Policy (`script-src 'self' 'wasm-unsafe-eval'`,
 `worker-src 'self'`). The worker's script, `src/worker-entry.mjs`, is found
 next to `src/worker.mjs`; pass `workerUrl` if a bundler moves it.
 
+## OpenMath input: `giac-wasm/openmath`
+
+`evalOpenMath` evaluates an OpenMath object, in the OpenMath 2.0 JSON
+encoding, in a session or a worker. It goes through the
+[giac-openmath](https://github.com/JuliaGiac/giac-openmath) table, embedded at
+a commit:
+
+```js
+import { loadGiac } from 'giac-wasm';
+import { evalOpenMath, giacSource, OpenMathConversionError } from 'giac-wasm/openmath';
+
+const giac = await loadGiac();                 // or createGiacWorker()
+const om = { kind: 'OMA', applicant: { kind: 'OMS', cd: 'transc1', name: 'log' },
+             arguments: [{ kind: 'OMI', integer: 2 }, { kind: 'OMV', name: 'x' }] };
+giacSource(om);                                // 'logb(x, 2)', not evaluated
+await evalOpenMath(giac, om);                  // { result: 'ln(x)/ln(2)', messages: [] }
+```
+
+- **Refusals.** What the table refuses or does not list throws an
+  `OpenMathConversionError`, rather than a guess. It carries:
+  - `reason`, the table's reason for a refused false friend such as
+    `integer1.remainder`;
+  - `path`, the JSON path of the node;
+  - `symbol` (`cd.name`) or `kind`.
+
+  A `GiacError` is an error GIAC raised while evaluating.
+- **Integers.** Beyond ±2^53, give them as `{kind: 'OMI', decimal: "…"}`. A
+  JSON-number integer that is not safe is refused.
+- **Floats.** `{exact: true}` refuses them.
+- **Variables.** They are GIAC identifiers. A name GIAC reads as a constant
+  (`e`, `pi`…) or a command (`sin`…) is refused. In integrals, derivatives,
+  limits and sums, the applied variable must be the bound one.
+- The input contract is recorded on JuliaGiac/giac#22. giac-openmath's shared
+  corpus (`test/fixtures/openmath-to-giac.json`) tests it. To move to another
+  commit of the table, run `node scripts/update-openmath.mjs <commit>`.
+
+## `=` assigns at the top level
+
+As in Xcas for the web, an `=` at the top level of an input assigns:
+`giac.eval('x=1')` sets `x` to 1, and so does `[x=1]`. For an equation, put it
+inside a call (`solve(x^2=1, x)`, `id(x=1)`); `==` is a test. Purge a variable
+with `purge(x)`.
+
 ## Limits of this version
 
 - No PARI, NTL, GSL or LAPACK: what Giac does with them is either done by its
