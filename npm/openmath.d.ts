@@ -3,9 +3,9 @@
 
 /** An OpenMath object in the OpenMath 2.0 JSON encoding. */
 export type OMObject =
-  | { kind: 'OMOBJ'; object: OMObject; openmath?: string }
-  | { kind: 'OMA'; applicant: OMObject; arguments: OMObject[] }
-  | { kind: 'OMBIND'; binder: OMObject; variables: { kind: 'OMV'; name: string }[]; object: OMObject }
+  | { kind: 'OMOBJ'; object: OMObject; openmath?: string; cdbase?: string }
+  | { kind: 'OMA'; applicant: OMObject; arguments: OMObject[]; cdbase?: string }
+  | { kind: 'OMBIND'; binder: OMObject; variables: { kind: 'OMV'; name: string }[]; object: OMObject; cdbase?: string }
   | { kind: 'OMS'; cd: string; name: string; cdbase?: string }
   | { kind: 'OMV'; name: string }
   | { kind: 'OMI'; integer?: number; decimal?: string; hexadecimal?: string }
@@ -15,6 +15,12 @@ export type OMObject =
 export interface OpenMathOptions {
   /** Refuse floats (OMF). */
   exact?: boolean;
+  /**
+   * Content Dictionaries of the table that are not official, to read too:
+   * `giac_math1` (private), `scscp1`, `prog1` (experimental),
+   * `giac_procedures1` (private, requests). By default only official CDs are read.
+   */
+  enable?: string[];
 }
 
 /** OpenMath that has no GIAC form here: what the table refuses or does not list. */

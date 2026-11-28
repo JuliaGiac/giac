@@ -3,9 +3,13 @@
 // in openmath-table.mjs at a commit. The input contract is recorded on
 // JuliaGiac/giac#22; the shared corpus of giac-openmath tests it.
 //
-//   giacSource(om, { exact })          GIAC input text, not evaluated
-//   evalOpenMath(giac, om, { exact })  { result, messages }, from a session of
-//                                      loadGiac() or a createGiacWorker()
+//   giacSource(om, { exact, enable })          GIAC input text, not evaluated
+//   evalOpenMath(giac, om, { exact, enable })  { result, messages }, from a
+//                                      session of loadGiac() or a createGiacWorker()
+//
+// Only the table's official CDs are read, unless `enable` lists others
+// (experimental or private, such as giac_math1). Each symbol must be at its
+// CD's base (its cdbase, or the nearest enclosing object's).
 //
 // What the table refuses or does not list throws an OpenMathConversionError
 // with the table's reason and the JSON path of the node, rather than a guess.
@@ -78,8 +82,96 @@ for (const m of TABLE.map) {
 // symbols the table reads somewhere, to tell "refused here" from "unknown"
 const KNOWN = new Set([...FROM_LEAF.keys(), ...FROM_MAPS.keys()].map((k) => k.replace(/^(apply|bind):/, '')));
 
+// the base of a CD: the table's, for JuliaGiac's own CDs; OpenMath's otherwise
+const baseOf = (cd) => TABLE.cd?.[cd]?.cdbase ?? STANDARD_CDBASE;
+// a symbol at its CD's base (prepare() gives every symbol its base)
 function standard(o) {
-  return o.cdbase === undefined || o.cdbase === STANDARD_CDBASE;
+  return (o.cdbase ?? STANDARD_CDBASE) === baseOf(o.cd);
+}
+const PROCEDURE_CDS = new Set(TABLE.envelope?.procedure_cds ?? []);
+const CALL = TABLE.envelope?.call;
+
+function enabledCDs(options) {
+  const list = options?.enable ?? [];
+  if (!Array.isArray(list)) throw new TypeError('enable: an array of Content Dictionary names');
+  for (const cd of list) {
+    if (!(TABLE.cd && Object.hasOwn(TABLE.cd, cd))) {
+      throw new TypeError(`enable: ${JSON.stringify(cd)} is not a Content Dictionary of the table`);
+    }
+  }
+  return new Set(list);
+}
+
+// the object with every symbol's base made explicit (its own cdbase, or the
+// nearest enclosing object's, or OpenMath's); the shape, and every path, is kept
+function withBases(o, base) {
+  if (Array.isArray(o)) return o.map((x) => withBases(x, base));
+  if (!o || typeof o !== 'object') return o;
+  const b = typeof o.cdbase === 'string' ? o.cdbase : base;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) out[k] = withBases(v, b);
+  if (o.kind === 'OMS') out.cdbase = b;
+  return out;
+}
+
+// the format 2 rules, on the first symbol that breaks one, in document order:
+// a CD not enabled, another base, a request out of place
+function checkSymbols(o, path, enabled, requestHead = false) {
+  if (Array.isArray(o)) {
+    o.forEach((x, i) => checkSymbols(x, [...path, i], enabled));
+    return;
+  }
+  if (!o || typeof o !== 'object') return;
+  if (o.kind === 'OMS') {
+    const s = symbolKey(o);
+    const status = TABLE.cd?.[o.cd]?.status;
+    if ((status === 'experimental' || status === 'private') && !enabled.has(o.cd)) {
+      throw new OpenMathConversionError(
+        `${o.cd} is ${status === 'private' ? 'a private' : 'an experimental'} Content Dictionary: ` +
+        `${s} is read only when the caller enables it ({ enable: ['${o.cd}'] })`, { path, symbol: s });
+    }
+    if (!standard(o)) {
+      throw new OpenMathConversionError(`no GIAC form for ${s} of the CD base ${o.cdbase}: ${o.cd} is at ${baseOf(o.cd)}`, { path, symbol: s });
+    }
+    if (PROCEDURE_CDS.has(o.cd) && !requestHead) {
+      throw new OpenMathConversionError(`${s} is a request to GIAC: valid only as the head of the argument of ${CALL}`, { path, symbol: s });
+    }
+    return;
+  }
+  if (o.kind === 'OMA') {
+    checkSymbols(o.applicant, [...path, 'applicant'], enabled);
+    const call = o.applicant?.kind === 'OMS' && symbolKey(o.applicant) === CALL;
+    (o.arguments ?? []).forEach((a, i) => {
+      const head = call && i === 0 && a?.kind === 'OMA';
+      if (head) {
+        checkSymbols(a.applicant, [...path, 'arguments', i, 'applicant'], enabled, true);
+        (a.arguments ?? []).forEach((x, j) => checkSymbols(x, [...path, 'arguments', i, 'arguments', j], enabled));
+      } else {
+        checkSymbols(a, [...path, 'arguments', i], enabled);
+      }
+    });
+    if (call) {
+      throw new OpenMathConversionError(`giac-wasm/openmath does not evaluate requests (${CALL}) yet`, { path: [...path, 'applicant'], symbol: CALL });
+    }
+    return;
+  }
+  if (o.kind === 'OMBIND') {
+    checkSymbols(o.binder, [...path, 'binder'], enabled);
+    checkSymbols(o.variables, [...path, 'variables'], enabled);
+    checkSymbols(o.object, [...path, 'object'], enabled);
+    return;
+  }
+  for (const [k, v] of Object.entries(o)) checkSymbols(v, [...path, k], enabled);
+}
+
+// the object a Writer reads: bases explicit, the format 2 rules checked, bound
+// variables named as GIAC constants renamed
+function prepare(om, options) {
+  const enabled = enabledCDs(options);
+  const base = om?.kind === 'OMOBJ' && typeof om.cdbase === 'string' ? om.cdbase : STANDARD_CDBASE;
+  const o = withBases(root(om), base);
+  checkSymbols(o, [], enabled);
+  return renameBound(o);
 }
 
 // does object o match OpenMath pattern p, binding placeholders in env
@@ -307,7 +399,7 @@ function findReserved(o, path) {
 
 /** GIAC input text of the OpenMath object `om`, not evaluated. */
 export function giacSource(om, options) {
-  return new Writer(options).source(renameBound(root(om)), []);
+  return new Writer(options).source(prepare(om, options), []);
 }
 
 /**
@@ -318,7 +410,7 @@ export function giacSource(om, options) {
  */
 export async function evalOpenMath(giac, om, options) {
   const w = new Writer(options);
-  const src = w.source(renameBound(root(om)), []);
+  const src = w.source(prepare(om, options), []);
   for (const [name, path] of w.names) {
     // `type('name')` is "identifier" for a free name, "func" for a command; it fails
     // on a keyword (mod, …)

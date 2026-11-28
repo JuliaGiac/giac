@@ -178,6 +178,27 @@ await evalOpenMath(giac, om);                  // { result: 'ln(x)/ln(2)', messa
   - `symbol` (`cd.name`) or `kind`.
 
   A `GiacError` is an error GIAC raised while evaluating.
+- **Content Dictionaries.** Only the table's official CDs are read by
+  default. The others are read only when listed in `enable`:
+  `giac_math1` (private: `sign`), `scscp1` and `prog1` (experimental), and
+  `giac_procedures1` (private: requests to GIAC). The rules are in
+  giac-openmath's `docs/private-cds.md`:
+
+  ```js
+  const PB = 'https://juliagiac.github.io/giac-openmath/cd';
+  const sign = { kind: 'OMA', applicant: { kind: 'OMS', cd: 'giac_math1', name: 'sign', cdbase: PB },
+                 arguments: [{ kind: 'OMV', name: 'x' }] };
+  giacSource(sign);                            // throws: giac_math1 is a private CD
+  giacSource(sign, { enable: ['giac_math1'] }); // 'sign(x)'
+  ```
+- **Bases.** A symbol's base is its own `cdbase`, or the nearest enclosing
+  object's, or `http://www.openmath.org/cd`. It must be its CD's base in the
+  table. JuliaGiac's CDs are at `https://juliagiac.github.io/giac-openmath/cd`;
+  the same name at another base is another dictionary, and is refused.
+- **Requests.** A `giac_procedures1` or `prog1` symbol is valid only as the
+  head of the argument of `scscp1.procedure_call`, and refused elsewhere.
+  evalOpenMath does not evaluate requests yet: `scscp1.procedure_call` is
+  refused, even when enabled.
 - **Integers.** Beyond ±2^53, give them as `{kind: 'OMI', decimal: "…"}`. A
   JSON-number integer that is not safe is refused.
 - **Floats.** `{exact: true}` refuses them.
