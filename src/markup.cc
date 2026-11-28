@@ -1895,6 +1895,7 @@ MarkupBlock gen2markup(const gen &g,int flags_orig,int &idc,GIAC_CONTEXT) {
       pnum.appl=false;
       pnum.priority=0;
       bool isinv,hasleadingfrac=true,is_cdot=true;
+      int numc_n=0,denc_n=0; // factors written in the content numerator, denominator
       int ni,di,np=-1,dp=-1;
       for (iterateur it=args.begin();it!=args.end();++it) {
         if (it->is_symb_of_sommet(at_inv)) {
@@ -1969,8 +1970,10 @@ MarkupBlock gen2markup(const gen &g,int flags_orig,int &idc,GIAC_CONTEXT) {
         prod_sign_scm=is_cdot?" \"<cdot>\" ":" \"*\" ";
         if (isinv) {
           pden=tmp;
-          if (mml_content)
+          if (mml_content) {
             denc+=tmp.content;
+            ++denc_n;
+          }
           if (mml_presentation)
             den+=(den.empty()?"":prod_sign)+tmp.markup;
           if (tex)
@@ -1979,8 +1982,10 @@ MarkupBlock gen2markup(const gen &g,int flags_orig,int &idc,GIAC_CONTEXT) {
             dens+=(dens.empty()?"":prod_sign_scm)+tmp.scheme;
         } else {
           pnum=tmp;
-          if (mml_content)
+          if (mml_content) {
             numc+=tmp.content;
+            ++numc_n;
+          }
           if (mml_presentation)
             num+=(num.empty()?"":prod_sign)+tmp.markup;
           if (tex)
@@ -2002,6 +2007,12 @@ MarkupBlock gen2markup(const gen &g,int flags_orig,int &idc,GIAC_CONTEXT) {
         ml.content=mml_tag("apply","<times/>"+numc,++idc);
       else if (mml_content) {
         ml.type=_MLBLOCK_FRACTION;
+        // <divide/> is binary (MathML 2.0, 4.4.3.3): several factors on a side
+        // are their product, a*inv(b)*inv(c) is a/(b*c)
+        if (numc_n>1)
+          numc=mml_tag("apply","<times/>"+numc,++idc);
+        if (denc_n>1)
+          denc=mml_tag("apply","<times/>"+denc,++idc);
         ml.content=mml_tag("apply","<divide/>"+numc+denc,++idc);
       }
       if (mml_presentation && den.empty())
