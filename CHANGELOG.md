@@ -14,9 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/update-openmath.mjs`). Refusals throw an `OpenMathConversionError`
   with the table's `reason`, the JSON `path` of the node, and its `symbol` or
   `kind`. It works with a `loadGiac()` session or a `createGiacWorker()`.
+  Format 2 of the table: only official CDs are read unless `enable` lists
+  others (`giac_math1`, `scscp1`, `prog1`, `giac_procedures1`); each symbol
+  must be at its CD's base, inherited from the enclosing object; request
+  symbols are refused outside `scscp1.procedure_call`, and requests are not
+  evaluated yet.
   A bound variable named as a GIAC constant (`i` in a sum) is renamed to a
   fresh name (`i_1`); a free one is refused. Tested against giac-openmath's
-  shared corpus (52 cases). The README
+  shared corpus (59 cases). The README
   documents that `=` at the top level assigns in giac-wasm, as in Xcas for
   the web.
 - **giac-wasm/worker: `createGiacWorker`** (#21), Giac in a worker (a module

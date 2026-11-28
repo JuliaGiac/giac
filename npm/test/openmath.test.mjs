@@ -24,7 +24,7 @@ function same(result, value) {
 
 test('the corpus and the table are those of the same giac-openmath', () => {
   assert.equal(corpus.format, 1);
-  assert.equal(TABLE.format, 1);
+  assert.equal(TABLE.format, 2);
   assert.equal(corpus.table_commit, TABLE.commit);
 });
 
@@ -122,4 +122,35 @@ test('renaming a bound constant name leaves the input as it was', () => {
   const src = giacSource(nested);
   assert.match(src, /\bi_1\b/);
   assert.match(src, /\bi_2\b/);
+});
+
+test('format 2: enable takes CD names of the table', () => {
+  const x = { kind: 'OMV', name: 'x' };
+  assert.throws(() => giacSource(x, { enable: ['no_such_cd'] }), TypeError);
+  assert.throws(() => giacSource(x, { enable: 'giac_math1' }), TypeError);
+  assert.equal(giacSource(x, { enable: ['giac_math1'] }), 'x');
+});
+
+test('format 2: a request in its envelope is not evaluated yet', async () => {
+  const PB = 'https://juliagiac.github.io/giac-openmath/cd';
+  const om = { kind: 'OMA', applicant: { kind: 'OMS', cd: 'scscp1', name: 'procedure_call' },
+    arguments: [{ kind: 'OMA', applicant: { kind: 'OMS', cd: 'giac_procedures1', name: 'factor', cdbase: PB },
+                  arguments: [{ kind: 'OMV', name: 'x' }] }] };
+  const enable = ['scscp1', 'giac_procedures1'];
+  await assert.rejects(evalOpenMath(giac, om, { enable }), (e) =>
+    e instanceof OpenMathConversionError && e.symbol === 'scscp1.procedure_call' &&
+    JSON.stringify(e.path) === '["applicant"]' && /does not evaluate requests/.test(e.reason));
+  // prog1.assignment is a request too: out of its envelope, refused
+  const sto = { kind: 'OMA', applicant: { kind: 'OMS', cd: 'prog1', name: 'assignment' },
+                arguments: [{ kind: 'OMV', name: 'a' }, { kind: 'OMI', integer: 1 }] };
+  assert.throws(() => giacSource(sto, { enable: ['prog1'] }), (e) =>
+    e instanceof OpenMathConversionError && /procedure_call/.test(e.reason));
+});
+
+test('format 2: an OMOBJ cdbase is inherited', () => {
+  const PB = 'https://juliagiac.github.io/giac-openmath/cd';
+  const om = { kind: 'OMOBJ', cdbase: PB, object: { kind: 'OMA', applicant: { kind: 'OMS', cd: 'giac_math1', name: 'sign' },
+                                                     arguments: [{ kind: 'OMV', name: 'x' }] } };
+  assert.equal(giacSource(om, { enable: ['giac_math1'] }), 'sign(x)');
+  assert.throws(() => giacSource(om), (e) => e instanceof OpenMathConversionError && /private/.test(e.reason));
 });
