@@ -12,6 +12,10 @@
       "types": "./worker.d.ts",
       "default": "./src/worker.mjs"
     },
+    "./openmath": {
+      "types": "./openmath.d.ts",
+      "default": "./src/openmath.mjs"
+    },
     "./giac.wasm": "./dist/giac.wasm"
   },
   "types": "./index.d.ts",
@@ -24,6 +28,9 @@
     "dist/giac.wasm",
     "index.d.ts",
     "worker.d.ts",
+    "src/openmath.mjs",
+    "src/openmath-table.mjs",
+    "openmath.d.ts",
     "README.md",
     "LICENSE"
   ],

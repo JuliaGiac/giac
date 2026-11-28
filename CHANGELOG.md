@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **giac-wasm/openmath: `evalOpenMath` and `giacSource`** (#22), OpenMath
+  (the OpenMath 2.0 JSON encoding) into GIAC through the giac-openmath table,
+  embedded at a commit (`src/openmath-table.mjs`, updated by
+  `scripts/update-openmath.mjs`). Refusals throw an `OpenMathConversionError`
+  with the table's `reason`, the JSON `path` of the node, and its `symbol` or
+  `kind`. It works with a `loadGiac()` session or a `createGiacWorker()`.
+  Tested against giac-openmath's shared corpus (48 cases). The README
+  documents that `=` at the top level assigns in giac-wasm, as in Xcas for
+  the web.
 - **giac-wasm/worker: `createGiacWorker`** (#21), Giac in a worker (a module
   Web Worker in browsers, `worker_threads` in Node.js) driven with promises:
   `ready`, `eval`, `evalWithMessages` (the result and GIAC's messages apart),
