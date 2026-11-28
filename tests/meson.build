@@ -60,4 +60,13 @@ test_svg_attributes = executable('test_svg_attributes',
 
 test('svg_attributes', test_svg_attributes, suite: 'unit', timeout: 60)
 
+test_mathml_divide = executable('test_mathml_divide',
+  'test_mathml_divide.cc',
+  include_directories: [giac_inc, config_inc],
+  dependencies: test_deps,
+  cpp_args: giac_common_args,
+)
+
+test('mathml_divide', test_mathml_divide, suite: 'unit', timeout: 60)
+
 test('numdiff', check_python, args: [numdiff, '--self-test'], suite: 'unit', timeout: 30)

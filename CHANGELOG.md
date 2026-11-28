@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HTML, but an `<img>` of it or any XML tool rejected it. The spaces are back
   (the commented-out stream code had them). `tests/test_svg_attributes.cc`
   checks the SVG of ten kinds of plots.
+- **Content MathML writes `<divide/>` with two operands.** `export_mathml`
+  wrote a product with several factors in its numerator or denominator as one
+  `<divide/>` of all of them: `(a/b)/c`, which GIAC holds as `a*inv(b)*inv(c)`,
+  became `<divide/> a b c`, which MathML forbids (4.4.3.3: divide is binary)
+  and readers refuse. A side with several factors is now their `<times/>`:
+  `divide(a, times(b, c))`. `tests/test_mathml_divide.cc` checks eight cases
+  (reported by the OpenMath.jl session: 62 of 1455 exported OSR expressions
+  had such a divide).
 - **A syntax error no longer quotes freed memory.** `set_lexer_string`
   (`src/input_lexer.ll`) pointed `currently_scanned` at a local string,
   destroyed when it returned, before the parse ran; the message
