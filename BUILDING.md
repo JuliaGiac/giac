@@ -378,11 +378,16 @@ just wasm-test   # the package's tests, with Node.js (18 or later)
 just wasm-pack   # npm/giac-wasm-<version>.tgz and .zip
 ```
 
+Versions follow GIAC_jll's rule: giac-wasm X00.Y00.Z00 is GIAC X.Y.Z (2.1.0 is
+200.100.0), and the last two digits count rebuilds of the same GIAC
+(200.100.1, …). A test fails if `npm/package.json` does not match the GIAC
+it was built from.
+
 A release: set `version` in `npm/package.json`, note it in `CHANGELOG.md`,
 then push a tag `giac-wasm-v<version>`. The workflow `wasm-release.yml`
 builds and tests the package, and publishes a GitHub Release with the
 tarball (installable with `npm install <its URL>`, without the registry), the
-zip and their SHA-256 sums. JuliaGiac/giac-wasm then serves it on its GitHub
+zip and their SHA-256 sums. s-celles/giac-wasm then serves it on its GitHub
 Pages. Publishing to the npm registry is a separate, manual step: `npm
 publish` from `npm/`.
 

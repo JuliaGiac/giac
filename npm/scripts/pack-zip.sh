@@ -2,7 +2,7 @@
 # Pack giac-wasm, built by build.sh, into npm/giac-wasm-<version>.zip: the
 # package's files in a giac-wasm-<version>/ folder, the same layout as the
 # npm tarball, for downloading or serving from any web server (the
-# JuliaGiac/giac-wasm Pages serve each release this way).
+# s-celles/giac-wasm Pages serve each release this way).
 set -euo pipefail
 
 NPM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

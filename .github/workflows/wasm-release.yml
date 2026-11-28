@@ -4,7 +4,7 @@ name: giac-wasm release
 # and tests giac-wasm, then publishes a GitHub Release with
 # giac-wasm-X.Y.Z.tgz (installable without the npm registry:
 # `npm install <its URL>`) and giac-wasm-X.Y.Z.zip (to download or serve).
-# JuliaGiac/giac-wasm serves each release on its GitHub Pages.
+# s-celles/giac-wasm serves each release on its GitHub Pages.
 # Publishing to the npm registry stays a manual step (npm publish).
 on:
   push:
@@ -68,4 +68,4 @@ jobs:
             --notes "giac-wasm ${VERSION}, Giac compiled to WebAssembly (see npm/README.md and CHANGELOG.md).
 
           Without the npm registry: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/giac-wasm-${VERSION}.tgz\`.
-          In a page, by URL: https://juliagiac.github.io/giac-wasm/${VERSION}/src/index.mjs (once JuliaGiac/giac-wasm has deployed it)."
+          In a page, by URL: https://s-celles.github.io/giac-wasm/${VERSION}/src/index.mjs (once s-celles/giac-wasm has deployed it)."

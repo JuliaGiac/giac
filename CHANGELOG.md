@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **giac-wasm/worker: `createGiacWorker`** (#21), Giac in a worker (a module
+  Web Worker in browsers, `worker_threads` in Node.js) driven with promises:
+  `ready`, `eval`, `evalWithMessages` (the result and GIAC's messages apart),
+  `setTimeout`, `interrupt` (the hard stop: terminates the worker, rejects the
+  pending calls, starts a fresh session with the same time limit) and
+  `terminate`. Rejections are `GiacError`s that carry GIAC's messages. Calls
+  sent before Giac has loaded wait for it; calls are answered in order.
+  `GiacError` and the time-limit check move to `src/errors.mjs`, so the main
+  thread never loads the WebAssembly module. TypeScript types in
+  `worker.d.ts`. Tested in Node.js (`test/worker.test.mjs`) and in Chromium
+  under a strict CSP (`test/browser-worker.mjs`).
 - **giac-wasm, an npm package of Giac compiled to WebAssembly** (`npm/`),
   for browsers, Web Workers and Node.js, with nothing to compile at install:
   `loadGiac()` resolves to a session with `eval(input)` (the result as text,
@@ -18,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4.2.2, no other optional library), tested by `just wasm-test` and in CI
   (job "WebAssembly"), packed by `just wasm-pack`: 3.3 MB, 9.4 MB unpacked.
   2D plots come back as SVG; 3D plots are not supported.
+  Its version encodes GIAC's, as GIAC_jll's does: giac-wasm 200.100.0 is GIAC
+  2.1.0, and 200.100.1, 200.100.2… are rebuilds of the same GIAC (a test
+  checks `npm/package.json` against the GIAC built).
 - **giac-wasm releases**: a tag `giac-wasm-vX.Y.Z` builds, tests and publishes
   a GitHub Release with the npm tarball (installable by URL, without the npm
   registry), a zip of the same files and their SHA-256 sums
