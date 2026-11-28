@@ -42,6 +42,9 @@ const RESERVED = new Set(['D', 'i', 'I', 'e', 'pi', 'infinity', 'inf', 'undef', 
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 const direction = (e) => e.direction ?? 'both';
+const constantRefusal = (n, path) => new OpenMathConversionError(
+  `the variable ${n} is a GIAC constant: GIAC would read it as that constant (a bound variable would be renamed; this one is free)`,
+  { path, kind: 'OMV' });
 const isPlaceholder = (x) => typeof x === 'string' && x.startsWith('#');
 
 // the key of an OpenMath pattern or object: its head symbol, "apply:" and the
@@ -153,9 +156,7 @@ class Writer {
         if (typeof n !== 'string' || !IDENTIFIER.test(n)) {
           throw new OpenMathConversionError(`the variable ${JSON.stringify(n)} is not a GIAC identifier`, { path, kind: 'OMV' });
         }
-        if (RESERVED.has(n)) {
-          throw new OpenMathConversionError(`the variable ${n} is a GIAC constant: GIAC would read it as that constant`, { path, kind: 'OMV' });
-        }
+        if (RESERVED.has(n)) throw constantRefusal(n, path);
         if (!this.names.has(n)) this.names.set(n, path);
         return n;
       }
@@ -204,6 +205,10 @@ class Writer {
       if (!standard(head)) throw new OpenMathConversionError(`no GIAC form for ${s} of the CD base ${head.cdbase}`, { path: headPath, symbol: s });
       if (!KNOWN.has(s)) throw this.refusal(s, headPath);
     }
+    // a free variable named as a constant, where a bound one was renamed
+    // (diff(i -> i^2) applied to i): refuse that variable, not the shape
+    const reserved = findReserved(o, path);
+    if (reserved) throw constantRefusal(reserved.name, reserved.path);
     const what = key ? key.replace(/^(apply|bind):/, '') : 'this application';
     throw new OpenMathConversionError(`no GIAC form for ${what} with these arguments in ${WHERE}`, { path, kind: o.kind });
   }
@@ -246,9 +251,63 @@ function root(om) {
   return om?.kind === 'OMOBJ' ? om.object : om;
 }
 
+// every variable name of an object
+function variableNames(o, out = new Set()) {
+  if (o && typeof o === 'object') {
+    if (o.kind === 'OMV' && typeof o.name === 'string') out.add(o.name);
+    for (const v of Object.values(o)) variableNames(v, out);
+  }
+  return out;
+}
+
+// the object with its bound variables named as GIAC constants renamed to fresh
+// names (alpha-conversion): the name followed by _1, _2…, the first no variable
+// of the object uses. Free ones are kept, and refused when written. The input is
+// not changed; the shape, and so every path, is the same.
+function renameBound(om) {
+  const used = variableNames(om);
+  const fresh = (n) => {
+    let k = 1;
+    while (used.has(`${n}_${k}`)) k++;
+    used.add(`${n}_${k}`);
+    return `${n}_${k}`;
+  };
+  const walk = (o, subst) => {
+    if (Array.isArray(o)) return o.map((x) => walk(x, subst));
+    if (!o || typeof o !== 'object') return o;
+    if (o.kind === 'OMV') return subst.has(o.name) ? { ...o, name: subst.get(o.name) } : o;
+    let inner = subst;
+    if (o.kind === 'OMBIND' && Array.isArray(o.variables)) {
+      inner = new Map(subst);
+      for (const v of o.variables) {
+        if (v?.kind !== 'OMV') continue;
+        if (RESERVED.has(v.name)) inner.set(v.name, fresh(v.name));
+        else inner.delete(v.name);     // a bound name shadows an outer renaming
+      }
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(o)) out[k] = walk(v, inner);
+    return out;
+  };
+  return walk(om, new Map());
+}
+
+// the first variable named as a GIAC constant, and its path: after renameBound,
+// a free one
+function findReserved(o, path) {
+  if (o && typeof o === 'object') {
+    if (o.kind === 'OMV' && RESERVED.has(o.name)) return { name: o.name, path };
+    for (const [k, v] of Object.entries(o)) {
+      const r = findReserved(v, [...path, Array.isArray(o) ? Number(k) : k]);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
 /** GIAC input text of the OpenMath object `om`, not evaluated. */
 export function giacSource(om, options) {
-  return new Writer(options).source(root(om), []);
+  return new Writer(options).source(renameBound(root(om)), []);
 }
 
 /**
@@ -259,7 +318,7 @@ export function giacSource(om, options) {
  */
 export async function evalOpenMath(giac, om, options) {
   const w = new Writer(options);
-  const src = w.source(root(om), []);
+  const src = w.source(renameBound(root(om)), []);
   for (const [name, path] of w.names) {
     // `type('name')` is "identifier" for a free name, "func" for a command; it fails
     // on a keyword (mod, …)

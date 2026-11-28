@@ -106,3 +106,20 @@ test('relation1.eq is an equation, never an assignment', async () => {
   assert.equal(giac.eval('eqx'), 'eqx');
 });
 
+test('renaming a bound constant name leaves the input as it was', () => {
+  const v = (n) => ({ kind: 'OMV', name: n });
+  const lam = (x, body) => ({ kind: 'OMBIND', binder: { kind: 'OMS', cd: 'fns1', name: 'lambda' }, variables: [v(x)], object: body });
+  const sum = (body) => ({ kind: 'OMA', applicant: { kind: 'OMS', cd: 'arith1', name: 'sum' },
+    arguments: [{ kind: 'OMA', applicant: { kind: 'OMS', cd: 'interval1', name: 'integer_interval' },
+                  arguments: [{ kind: 'OMI', integer: 1 }, v('n')] }, body] });
+  const om = sum(lam('i', v('i')));
+  const before = JSON.stringify(om);
+  assert.match(giacSource(om), /\bi_1\b/);
+  assert.doesNotMatch(giacSource(om), /\bi\b/);
+  assert.equal(JSON.stringify(om), before);
+  // nested bindings of i: two fresh names
+  const nested = sum(lam('i', sum(lam('i', v('i')))));
+  const src = giacSource(nested);
+  assert.match(src, /\bi_1\b/);
+  assert.match(src, /\bi_2\b/);
+});
