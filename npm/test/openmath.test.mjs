@@ -90,3 +90,19 @@ test('evalOpenMath works with giac-wasm/worker too', async () => {
     w.terminate();
   }
 });
+
+test('relation1.eq is an equation, never an assignment', async () => {
+  // caseval reads a top-level "x=1" as x:=1; evalOpenMath must not
+  const eq = (a, b) => ({ kind: 'OMA', applicant: { kind: 'OMS', cd: 'relation1', name: 'eq' }, arguments: [a, b] });
+  const v = (n) => ({ kind: 'OMV', name: n });
+  const one = { kind: 'OMI', integer: 1 };
+  giac.eval('purge(eqx)');
+  assert.equal((await evalOpenMath(giac, eq(v('eqx'), one))).result, 'eqx=1');
+  assert.equal(giac.eval('eqx'), 'eqx');                       // not assigned
+  // nested: an equation inside a sum is still not an assignment
+  const plus = { kind: 'OMA', applicant: { kind: 'OMS', cd: 'arith1', name: 'plus' },
+                 arguments: [eq(v('eqx'), one), eq(v('eqx'), one)] };
+  await evalOpenMath(giac, plus);
+  assert.equal(giac.eval('eqx'), 'eqx');
+});
+
