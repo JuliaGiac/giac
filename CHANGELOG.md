@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/update-openmath.mjs`). Refusals throw an `OpenMathConversionError`
   with the table's `reason`, the JSON `path` of the node, and its `symbol` or
   `kind`. It works with a `loadGiac()` session or a `createGiacWorker()`.
-  Tested against giac-openmath's shared corpus (48 cases). The README
+  A bound variable named as a GIAC constant (`i` in a sum) is renamed to a
+  fresh name (`i_1`); a free one is refused. Tested against giac-openmath's
+  shared corpus (52 cases). The README
   documents that `=` at the top level assigns in giac-wasm, as in Xcas for
   the web.
 - **giac-wasm/worker: `createGiacWorker`** (#21), Giac in a worker (a module

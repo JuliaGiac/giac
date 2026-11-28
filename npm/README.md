@@ -181,9 +181,15 @@ await evalOpenMath(giac, om);                  // { result: 'ln(x)/ln(2)', messa
 - **Integers.** Beyond ±2^53, give them as `{kind: 'OMI', decimal: "…"}`. A
   JSON-number integer that is not safe is refused.
 - **Floats.** `{exact: true}` refuses them.
-- **Variables.** They are GIAC identifiers. A name GIAC reads as a constant
-  (`e`, `pi`…) or a command (`sin`…) is refused. In integrals, derivatives,
-  limits and sums, the applied variable must be the bound one.
+- **Variables.** They are GIAC identifiers. A free variable named as a GIAC
+  constant (`e`, `i`, `pi`…) or a command (`sin`…) is refused. In integrals,
+  derivatives, limits and sums, the applied variable must be the bound one.
+- **Bound variables named as constants are renamed.** A variable bound by an
+  `OMBIND` (`fns1.lambda`) whose name GIAC reads as a constant gets a fresh
+  name, the name followed by `_1`, `_2`…, the first the object does not use.
+  Renaming a bound variable keeps the meaning, so the sum over `i` of `i^2` is
+  `sum(i_1^2, i_1, 1, n)`. A result that still holds the binding shows the
+  fresh name. A bound variable named as a command is still refused.
 - The input contract is recorded on JuliaGiac/giac#22. giac-openmath's shared
   corpus (`test/fixtures/openmath-to-giac.json`) tests it. To move to another
   commit of the table, run `node scripts/update-openmath.mjs <commit>`.
