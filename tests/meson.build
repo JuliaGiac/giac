@@ -51,4 +51,13 @@ test_parse_error_line = executable('test_parse_error_line',
 
 test('parse_error_line', test_parse_error_line, suite: 'unit', timeout: 60)
 
+test_svg_attributes = executable('test_svg_attributes',
+  'test_svg_attributes.cc',
+  include_directories: [giac_inc, config_inc],
+  dependencies: test_deps,
+  cpp_args: giac_common_args,
+)
+
+test('svg_attributes', test_svg_attributes, suite: 'unit', timeout: 60)
+
 test('numdiff', check_python, args: [numdiff, '--self-test'], suite: 'unit', timeout: 30)

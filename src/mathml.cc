@@ -809,7 +809,7 @@ namespace giac {
       // sortie<<"<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.0\" ";
     }
     else {
-      sprintf(pos,"<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.2\" baseProfile=\"tiny\"");
+      sprintf(pos,"<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.2\" baseProfile=\"tiny\" ");
       // sortie << "<svg ";
     }
     pos=buffer+strlen(buffer);
@@ -855,7 +855,7 @@ namespace giac {
     double ymax2=ymax; // ymax2=cutupper?0.9*ymax+0.1*ymin:ymax;
     for (i=(int) i_min_x; i*dx<=xmax; i++){
       x=i*dx;
-      sprintf(pos,"<line x1=\"%.5g\" y1=\"%.5g\" x2=\"%.5g\" y2=\"%.5g\"",x,ymin,x,ymax2);
+      sprintf(pos,"<line x1=\"%.5g\" y1=\"%.5g\" x2=\"%.5g\" y2=\"%.5g\" ",x,ymin,x,ymax2);
       pos=buffer+strlen(buffer);
       // sortie<<"<line x1=\""<<x <<"\" y1=\""<<ymin <<"\" x2=\""<<x <<"\" y2=\""<<ymax << "\" ";
       if(i%5==0){
@@ -870,7 +870,7 @@ namespace giac {
     }
     for (i=(int) i_min_y; i*dy<=ymax2; i++){
       y=i*dy;
-      sprintf(pos,"<line x1=\"%.5g\" y1=\"%.5g\" x2=\"%.5g\" y2=\"%.5g\"",xmin,y,xmax,y);
+      sprintf(pos,"<line x1=\"%.5g\" y1=\"%.5g\" x2=\"%.5g\" y2=\"%.5g\" ",xmin,y,xmax,y);
       pos=buffer+strlen(buffer);
       // sortie<<"<line x1=\""<<xmin <<"\" y1=\""<<y <<"\" x2=\""<<xmax <<"\" y2=\""<<y;
       if (i%5==0){
