@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`wasm-release.yml`; `just wasm-pack` makes both archives).
 
 ### Fixed
+- **A syntax error no longer quotes freed memory.** `set_lexer_string`
+  (`src/input_lexer.ll`) pointed `currently_scanned` at a local string,
+  destroyed when it returned, before the parse ran; the message
+  `syntax error … at ; in <line>` then quoted whatever the allocator had left
+  there, often bytes that are not UTF-8, and could crash. The scanned text now
+  lives, per thread, as long as its scanner. `tests/test_parse_error_line.cc`
+  checks that the message quotes the input line (the same change is in the
+  generated `src/input_lexer.cc`).
 - **The Emscripten build** (`cross/emscripten-wasm32.ini`) compiles and
   links. Under Emscripten libgiac is static only, without pthreads and with
   `HAVE_PTHREAD_H` undefined (`src/global.cc` declares `fork_mutex` under

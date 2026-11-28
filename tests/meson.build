@@ -42,4 +42,13 @@ test_integrate_repeat = executable('test_integrate_repeat',
 test('integrate_repeat', test_integrate_repeat, suite: 'unit', timeout: 60)
 
 # The tolerant comparison used by the checks in approx_checks (src/meson.build)
+test_parse_error_line = executable('test_parse_error_line',
+  'test_parse_error_line.cc',
+  include_directories: [giac_inc, config_inc],
+  dependencies: test_deps,
+  cpp_args: giac_common_args,
+)
+
+test('parse_error_line', test_parse_error_line, suite: 'unit', timeout: 60)
+
 test('numdiff', check_python, args: [numdiff, '--self-test'], suite: 'unit', timeout: 30)

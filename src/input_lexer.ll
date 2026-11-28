@@ -56,6 +56,8 @@
 #endif
 #include <iostream>
 #include <stdexcept>
+#include <map>
+#include <string>
 #if !defined RTOS_THREADX && !defined NSPIRE && !defined FXCG && !defined GIAC_HAS_STO_38
 #include <fstream>
 #endif
@@ -282,7 +284,8 @@ AN	[0-9a-zA-Z_~ ?\200-\355\357-\376]
 
 %%
 
-[ \t\\]+			/* skip whitespace */
+[ 
+\t\\]+			/* skip whitespace */
 \n                increment_lexer_line_number_setcol(yyscanner,yyextra); //CERR << "Scanning line " << lexer_line_number(yyextra) << '\n';
   /* Strings */
   /* \"[^\"]*\"        yylval = string2gen( giac_yytext); return T_STRING; */
@@ -939,6 +942,16 @@ AN	[0-9a-zA-Z_~ ?\200-\355\357-\376]
     
     // Set the input string
     // export GIAC_DEBUG=-2 to renew static_lexer.h/static_extern.h
+#ifndef NUMWORKS
+    // The text each scanner reads, from set_lexer_string to delete_lexer_string
+    // (see set_lexer_string); per thread, as parsing is. Map nodes do not move,
+    // so a pointer into one stays valid until the entry is erased.
+    static std::map<void *,std::string> & lexer_scanned_texts(){
+      static thread_local std::map<void *,std::string> texts;
+      return texts;
+    }
+#endif
+
     YY_BUFFER_STATE set_lexer_string(const std::string &s_orig,yyscan_t & scanner,GIAC_CONTEXT){
 #if 0
 #ifdef NSPIRE
@@ -1321,13 +1334,28 @@ AN	[0-9a-zA-Z_~ ?\200-\355\357-\376]
       currently_scanned(contextptr)=lexer_string;
       YY_BUFFER_STATE state=yy_scan_string(lexer_string,scanner);
 #else
-      currently_scanned(contextptr)=lexer_string.c_str();
-      YY_BUFFER_STATE state=yy_scan_string(lexer_string.c_str(),scanner);
+      // giac_yyerror quotes the current line from currently_scanned while the
+      // parser runs, after this function has returned: point it at a copy that
+      // lives as long as the scanner, not at the local lexer_string
+      std::string & scanned=lexer_scanned_texts()[scanner];
+      scanned=lexer_string;
+      currently_scanned(contextptr)=scanned.c_str();
+      YY_BUFFER_STATE state=yy_scan_string(scanned.c_str(),scanner);
 #endif
       return state;
     }
 
     int delete_lexer_string(YY_BUFFER_STATE & state,yyscan_t & scanner){
+#ifndef NUMWORKS
+      std::map<void *,std::string> & texts=lexer_scanned_texts();
+      std::map<void *,std::string>::iterator it=texts.find(scanner);
+      if (it!=texts.end()){
+        const giac::context * contextptr=giac_yyget_extra(scanner);
+        if (currently_scanned(contextptr)==it->second.c_str())
+          currently_scanned(contextptr)="";
+        texts.erase(it);
+      }
+#endif
       yy_delete_buffer(state,scanner);
       yylex_destroy(scanner);
       return 1;
