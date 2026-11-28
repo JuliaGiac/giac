@@ -10,18 +10,9 @@
 // version 3 or later.
 
 import createGiacModule from '../dist/giac.mjs';
+import { GiacError, checkTimeout } from './errors.mjs';
 
-/** An error GIAC reported while evaluating an input. */
-export class GiacError extends Error {
-  constructor(message, { input, messages = [] } = {}) {
-    super(message);
-    this.name = 'GiacError';
-    /** The input that failed. */
-    this.input = input;
-    /** GIAC's messages while evaluating it. */
-    this.messages = messages;
-  }
-}
+export { GiacError };
 
 // Inputs caseval reads as commands to itself instead of evaluating them
 // (src/gen.cc); `caseval contextptr` even returns a pointer as text.
@@ -31,20 +22,12 @@ const CONTROL_WORDS = new Set([
 ]);
 const CONTROL_PREFIXES = ['timeout ', 'ckevery ', 'ckbudget '];
 
-// GIAC takes a time limit t with 0 <= t < 24*60 seconds; 0 would interrupt
-// everything at once.
-const MAX_TIMEOUT = 24 * 60;
 // How often GIAC looks at the clock: every CHECK_EVERY of its interruption
 // checks. Without it, the time limit is never checked.
 const CHECK_EVERY = 10000;
 
 const ERROR_PREFIX = 'GIAC_ERROR:';
 
-function checkTimeout(seconds) {
-  if (typeof seconds !== 'number' || !(seconds > 0 && seconds < MAX_TIMEOUT)) {
-    throw new RangeError(`the time limit must be a number of seconds in ]0, ${MAX_TIMEOUT}[, got ${seconds}`);
-  }
-}
 
 /** One GIAC session in its own WebAssembly instance. */
 class Giac {

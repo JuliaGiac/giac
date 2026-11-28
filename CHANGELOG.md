@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **giac-wasm/worker: `createGiacWorker`** (#21), Giac in a worker (a module
+  Web Worker in browsers, `worker_threads` in Node.js) driven with promises:
+  `ready`, `eval`, `evalWithMessages` (the result and GIAC's messages apart),
+  `setTimeout`, `interrupt` (the hard stop: terminates the worker, rejects the
+  pending calls, starts a fresh session with the same time limit) and
+  `terminate`. Rejections are `GiacError`s that carry GIAC's messages. Calls
+  sent before Giac has loaded wait for it; calls are answered in order.
+  `GiacError` and the time-limit check move to `src/errors.mjs`, so the main
+  thread never loads the WebAssembly module. TypeScript types in
+  `worker.d.ts`. Tested in Node.js (`test/worker.test.mjs`) and in Chromium
+  under a strict CSP (`test/browser-worker.mjs`).
 - **giac-wasm, an npm package of Giac compiled to WebAssembly** (`npm/`),
   for browsers, Web Workers and Node.js, with nothing to compile at install:
   `loadGiac()` resolves to a session with `eval(input)` (the result as text,

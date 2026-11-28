@@ -117,21 +117,40 @@ An evaluation Giac reports as an error throws a `GiacError`, with `message`
 (Giac's text), `input` and `messages`. A 3D plot throws one too: there is no
 3D renderer.
 
-## Running Giac off the main thread
+## Running Giac off the main thread: `giac-wasm/worker`
 
-An evaluation is synchronous: in a page, it blocks the page while it runs.
-Load Giac in a Web Worker to keep the page responsive:
+An evaluation is synchronous: on a page's main thread, it blocks the page
+while it runs. `createGiacWorker` runs Giac in a worker instead (a module Web
+Worker in browsers, `worker_threads` in Node.js) and gives promises:
 
 ```js
-// worker.mjs
-import { loadGiac } from 'giac-wasm';
-const giac = await loadGiac();
-onmessage = (e) => postMessage(giac.eval(e.data));
+import { createGiacWorker } from 'giac-wasm/worker';
+
+const w = createGiacWorker({ timeout: 15 });
+await w.ready;                                  // { version: '2.1.0' }
+await w.eval('factor(x^4-1)');                  // '(x-1)*(x+1)*(x^2+1)'
+await w.evalWithMessages('integrate(abs(x),x)');
+// { result: '1/2*x^2*sign(x)', messages: ['Warning, integration of abs or sign assumes …', 'Check [abs(x)]'] }
 ```
 
-The time limit stops most long evaluations. A few of Giac's algorithms never
-check it (an infinitely recursive function definition, for one): only
-`worker.terminate()` stops those.
+- **The result and GIAC's messages, always.** `evalWithMessages` resolves to
+  `{ result, messages }`. A rejection is a `GiacError` whose `messages` hold
+  what GIAC said, also when the time limit stopped it. `eval` gives the
+  messages to the `onMessage` option.
+- **Calls can be made at once.** Calls sent before Giac has loaded wait for
+  it. GIAC runs one evaluation at a time: calls are answered in order, each
+  with its own result.
+- **`setTimeout(seconds)`** sets GIAC's time limit.
+- **`interrupt()` is the hard stop.** A few of GIAC's evaluators never check
+  the time limit (an infinitely recursive definition, for one). `interrupt()`
+  terminates the worker, rejects the pending calls with a `GiacError`, and
+  starts a fresh session: its variables are gone, the time limit is kept.
+- **`terminate()`** stops it for good.
+
+It needs no SharedArrayBuffer and no `eval`, so it works under a strict
+Content Security Policy (`script-src 'self' 'wasm-unsafe-eval'`,
+`worker-src 'self'`). The worker's script, `src/worker-entry.mjs`, is found
+next to `src/worker.mjs`; pass `workerUrl` if a bundler moves it.
 
 ## Limits of this version
 
