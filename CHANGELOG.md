@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`wasm-release.yml`; `just wasm-pack` makes both archives).
 
 ### Fixed
+- **Plots are well-formed SVG.** `src/mathml.cc` wrote the attribute after
+  `baseProfile="tiny"` in the SVG header, and `stroke` after the `y2` of each
+  grid line, without a space (`y2="1.1"stroke="cyan"`). Browsers read it as
+  HTML, but an `<img>` of it or any XML tool rejected it. The spaces are back
+  (the commented-out stream code had them). `tests/test_svg_attributes.cc`
+  checks the SVG of ten kinds of plots.
 - **A syntax error no longer quotes freed memory.** `set_lexer_string`
   (`src/input_lexer.ll`) pointed `currently_scanned` at a local string,
   destroyed when it returned, before the parse ran; the message
